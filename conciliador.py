@@ -772,66 +772,158 @@ def perform_reconciliation_multi_step(extracto_df, amex_df, diners_df, mc_df, vi
         'payu': 0
     }
     
-    # PASO 1: Conciliación AMEX (2 fases)
+    # PASO 1: Conciliación AMEX (2 fases) - LÓGICA EXACTA DEL HTML
     if not amex_df.empty:
         print("💳 PASO 1: Conciliando AMEX")
         
-        # Fase 2: Por fecha y monto
-        for idx, ext_row in extracto_df.iterrows():
-            if not ext_row['ESTADO'].startswith('Pendiente'):
-                continue
-                
-            fecha_ext = parse_date(ext_row['FECHA'])
-            monto_ext = convert_to_number(ext_row['MONTO'])
-            
-            if fecha_ext and not np.isnan(monto_ext):
-                fecha_key = fecha_ext.strftime('%Y-%m-%d')
-                
-                # Buscar en AMEX
-                for amex_idx, amex_row in amex_df.iterrows():
-                    if not amex_row['ESTADO'].startswith('Pendiente'):
-                        continue
-                        
-                    fecha_amex = parse_date(amex_row['FECHA_ABONO'])
-                    monto_amex = convert_to_number(amex_row['NETO_TOTAL'])
-                    
-                    if fecha_amex and not np.isnan(monto_amex):
-                        fecha_amex_key = fecha_amex.strftime('%Y-%m-%d')
-                        
-                        if fecha_key == fecha_amex_key and abs(monto_ext - monto_amex) < 0.01:
-                            # Conciliar
-                            etiqueta = 'MA-' if amex_row['ESTADO'] == 'Pendiente MA' else ''
-                            extracto_df.at[idx, 'ESTADO'] = f'{etiqueta}P2-F2-Conciliado'
-                            extracto_df.at[idx, '#REF'] = f'{etiqueta}{amex_row["CODIGO"]} - {fecha_key}'
-                            amex_df.at[amex_idx, 'ESTADO'] = f'{etiqueta}P2-F2-Conciliado'
-                            amex_df.at[amex_idx, '#REF'] = f'{etiqueta}{ext_row["OPERACIÓN - NÚMERO"]} - {fecha_key}'
-                            stats['amex_f2'] += 1
-                            break
+        # FASE 2: Construir mapa AMEX (fecha + monto) - EXACTO AL HTML
+        amex_map = {}
+        print("📊 PASO 1: Procesando AMEX para conciliación")
         
-        # Fase 3: Solo por monto (fechas diferentes)
+        for amex_idx, amex_row in amex_df.iterrows():
+            if not amex_row['ESTADO'].startswith('Pendiente'):
+                continue
+                
+            fecha_raw = amex_row['FECHA_ABONO']
+            monto_raw = amex_row['NETO_TOTAL']
+            
+            # Convertir fecha AMEX (formato AAAAMMDD de 8 dígitos) - EXACTO AL HTML
+            fecha_key = None
+            if pd.notna(fecha_raw):
+                fecha_str = str(int(fecha_raw)) if isinstance(fecha_raw, (int, float)) else str(fecha_raw).strip()
+                if len(fecha_str) == 8 and fecha_str.isdigit():
+                    try:
+                        fecha_obj = datetime.strptime(fecha_str, '%Y%m%d')
+                        fecha_key = fecha_obj.strftime('%Y-%m-%d')
+                    except:
+                        pass
+            
+            monto = convert_to_number(monto_raw)
+            
+            if fecha_key and not np.isnan(monto):
+                key = f"{fecha_key}_{monto:.2f}"
+                print(f"💳 [AMEX {amex_idx}] Key: \"{key}\" | Código: {amex_row['CODIGO']}")
+                
+                if key not in amex_map:
+                    amex_map[key] = []
+                amex_map[key].append({
+                    'row_idx': amex_idx, 
+                    'row': amex_row,
+                    'codigo': amex_row['CODIGO']
+                })
+        
+        print(f"AMEX Map size: {len(amex_map)}")
+        
+        # FASE 2: Conciliación por fecha + monto - IGUAL AL HTML
         for idx, ext_row in extracto_df.iterrows():
             if not ext_row['ESTADO'].startswith('Pendiente'):
                 continue
                 
-            monto_ext = convert_to_number(ext_row['MONTO'])
+            fecha_raw = ext_row['FECHA']
+            monto_raw = ext_row['MONTO']
             
-            if not np.isnan(monto_ext):
-                # Buscar en AMEX pendientes
-                for amex_idx, amex_row in amex_df.iterrows():
-                    if not amex_row['ESTADO'].startswith('Pendiente'):
-                        continue
-                        
-                    monto_amex = convert_to_number(amex_row['NETO_TOTAL'])
+            fecha_ext = parse_date(fecha_raw)
+            fecha_key = None
+            if fecha_ext:
+                fecha_key = fecha_ext.strftime('%Y-%m-%d')
+            
+            monto = convert_to_number(monto_raw)
+            
+            if fecha_key and not np.isnan(monto):
+                key = f"{fecha_key}_{monto:.2f}"
+                print(f"[EXTRACTO {idx}] Buscando key: \"{key}\"")
+                
+                if key in amex_map and len(amex_map[key]) > 0:
+                    # Tomar el primer match (como matches.shift() en HTML)
+                    match_data = amex_map[key].pop(0)
+                    match_row = match_data['row']
+                    amex_idx = match_data['row_idx']
                     
-                    if not np.isnan(monto_amex) and abs(monto_ext - monto_amex) < 0.01:
-                        # Conciliar
-                        etiqueta = 'MA-' if amex_row['ESTADO'] == 'Pendiente MA' else ''
-                        extracto_df.at[idx, 'ESTADO'] = f'{etiqueta}P2-F3-Conciliado'
-                        extracto_df.at[idx, '#REF'] = f'{etiqueta}{amex_row["CODIGO"]} - Monto: {monto_ext:.2f}'
-                        amex_df.at[amex_idx, 'ESTADO'] = f'{etiqueta}P2-F3-Conciliado'
-                        amex_df.at[amex_idx, '#REF'] = f'{etiqueta}{ext_row["OPERACIÓN - NÚMERO"]} - Monto: {monto_ext:.2f}'
-                        stats['amex_f3'] += 1
-                        break
+                    cod_com = match_row['CODIGO']
+                    op_num = ext_row['OPERACIÓN - NÚMERO']
+                    fecha_str = fecha_ext.strftime('%d/%m/%Y')
+                    
+                    # Verificar etiqueta MA-
+                    es_archivo_ma = match_row['ESTADO'] == 'Pendiente MA'
+                    etiqueta = 'MA-' if es_archivo_ma else ''
+                    print(f"Etiqueta aplicada: {etiqueta}, Estado original: {match_row['ESTADO']}")
+                    
+                    # Marcar como conciliado
+                    extracto_df.at[idx, 'ESTADO'] = f'{etiqueta}P2-F2-Conciliado'
+                    extracto_df.at[idx, '#REF'] = f'{etiqueta}{cod_com} - {fecha_str}'
+                    amex_df.at[amex_idx, 'ESTADO'] = f'{etiqueta}P2-F2-Conciliado'
+                    amex_df.at[amex_idx, '#REF'] = f'{etiqueta}{op_num} - {fecha_str}'
+                    
+                    stats['amex_f2'] += 1
+                    print(f"[EXTRACTO {idx}] ✅ P2-F2-Conciliado con AMEX código {cod_com}")
+                    
+                    # Eliminar key si no quedan matches
+                    if len(amex_map[key]) == 0:
+                        del amex_map[key]
+        
+        print(f"Conciliados AMEX F2: {stats['amex_f2']}")
+        
+        # FASE 3: Conciliación solo por monto - IGUAL AL HTML
+        print("🔄 PASO 1 - FASE 3: Conciliando AMEX (solo monto, fechas diferentes)")
+        
+        # Crear mapa solo por monto para registros no conciliados en FASE 2
+        amex_monto_map = {}
+        
+        # Procesar solo registros AMEX no conciliados en FASE 2
+        for amex_idx, amex_row in amex_df.iterrows():
+            if amex_row['ESTADO'].startswith('Pendiente'):  # Solo pendientes de FASE 2
+                monto_raw = amex_row['NETO_TOTAL']
+                monto = convert_to_number(monto_raw)
+                
+                if not np.isnan(monto):
+                    monto_key = f"{monto:.2f}"
+                    print(f"[AMEX F3 {amex_idx}] Monto: \"{monto_key}\" | Código: {amex_row['CODIGO']}")
+                    
+                    if monto_key not in amex_monto_map:
+                        amex_monto_map[monto_key] = []
+                    amex_monto_map[monto_key].append({'row_idx': amex_idx, 'row': amex_row})
+        
+        # Conciliar por monto con registros pendientes del extracto
+        for idx, ext_row in extracto_df.iterrows():
+            if not ext_row['ESTADO'].startswith('Pendiente'):
+                continue
+                
+            monto_raw = ext_row['MONTO']
+            monto = convert_to_number(monto_raw)
+            
+            if not np.isnan(monto):
+                monto_key = f"{monto:.2f}"
+                
+                if monto_key in amex_monto_map and len(amex_monto_map[monto_key]) > 0:
+                    # Tomar el primer match (como matches.shift() en HTML)
+                    match_data = amex_monto_map[monto_key].pop(0)
+                    match_row = match_data['row']
+                    amex_idx = match_data['row_idx']
+                    
+                    cod_com = match_row['CODIGO']
+                    op_num = ext_row['OPERACIÓN - NÚMERO']
+                    fecha_extracto_str = parse_date(ext_row['FECHA'])
+                    fecha_extracto_formatted = fecha_extracto_str.strftime('%d/%m/%Y') if fecha_extracto_str else 'Fecha inválida'
+                    
+                    # Verificar etiqueta MA-
+                    es_archivo_ma = match_row['ESTADO'] == 'Pendiente MA'
+                    etiqueta = 'MA-' if es_archivo_ma else ''
+                    print(f"Etiqueta F3 aplicada: {etiqueta}, Estado original: {match_row['ESTADO']}")
+                    
+                    # Marcar como conciliado
+                    extracto_df.at[idx, 'ESTADO'] = f'{etiqueta}P2-F3-Conciliado'
+                    extracto_df.at[idx, '#REF'] = f'{etiqueta}{cod_com} - Monto: {monto_key} (fechas diferentes)'
+                    amex_df.at[amex_idx, 'ESTADO'] = f'{etiqueta}P2-F3-Conciliado'
+                    amex_df.at[amex_idx, '#REF'] = f'{etiqueta}{op_num} - Monto: {monto_key} (fechas diferentes)'
+                    
+                    stats['amex_f3'] += 1
+                    print(f"[EXTRACTO {idx}] ✅ P2-F3-Conciliado con AMEX código {cod_com} (fechas diferentes)")
+                    
+                    # Eliminar key si no quedan matches
+                    if len(amex_monto_map[monto_key]) == 0:
+                        del amex_monto_map[monto_key]
+        
+        print(f"[F3 RESUMEN] {stats['amex_f3']} conciliaciones realizadas en fase 3")
     
     # PASO 2: Conciliación DINERS (3 fases)
     if not diners_df.empty:
