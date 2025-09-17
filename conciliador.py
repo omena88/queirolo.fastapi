@@ -71,18 +71,55 @@ async def upload_extracto(files: List[UploadFile] = File(...)):
             # Leer archivo Excel (fila 5 como header)
             df = pd.read_excel(temp_file, header=4)
             
-            # Verificar columnas requeridas
-            required_cols = ['FECHA', 'DESCRIPCIÓN OPERACIÓN', 'MONTO', 'OPERACIÓN - NÚMERO', 'REFERENCIA2']
-            missing_cols = [col for col in required_cols if col not in df.columns]
+            # Limpiar nombres de columnas
+            df.columns = df.columns.astype(str).str.strip()
+            
+            # Mapear columnas con nombres flexibles
+            column_mapping = {}
+            required_patterns = {
+                'FECHA': ['FECHA'],
+                'DESCRIPCIÓN OPERACIÓN': ['DESCRIPCIÓN OPERACIÓN', 'DESCRIPCION OPERACION', 'DESCRIPCIÓN', 'DESCRIPCION'],
+                'MONTO': ['MONTO', 'IMPORTE', 'VALOR'],
+                'OPERACIÓN - NÚMERO': ['OPERACIÓN - NÚMERO', 'OPERACION - NUMERO', 'OPERACIÓN NÚMERO', 'OPERACION NUMERO', 'OP NUMERO', 'OP - NUMERO'],
+                'REFERENCIA2': ['REFERENCIA2', 'REFERENCIA 2', 'REF2', 'REFERENCIA']
+            }
+            
+            # Buscar columnas por patrones
+            for standard_name, patterns in required_patterns.items():
+                found = False
+                for pattern in patterns:
+                    for col in df.columns:
+                        if pattern.upper() in str(col).upper():
+                            column_mapping[standard_name] = col
+                            found = True
+                            break
+                    if found:
+                        break
+                
+                if not found:
+                    # Buscar por similitud parcial
+                    for col in df.columns:
+                        col_upper = str(col).upper()
+                        if any(word in col_upper for word in standard_name.split()):
+                            column_mapping[standard_name] = col
+                            found = True
+                            break
+            
+            # Verificar que se encontraron todas las columnas
+            missing_cols = [col for col in required_patterns.keys() if col not in column_mapping]
             if missing_cols:
-                raise Exception(f"Faltan columnas: {', '.join(missing_cols)}")
+                available_cols = list(df.columns)
+                raise Exception(f"Faltan columnas: {', '.join(missing_cols)}. Columnas disponibles: {', '.join(available_cols)}")
+            
+            # Renombrar columnas al estándar
+            df = df.rename(columns={v: k for k, v in column_mapping.items()})
             
             # Filtrar por descripción operación
             desc_col = 'DESCRIPCIÓN OPERACIÓN'
             extracto_data = df[
-                df[desc_col].str.upper().str.contains(
+                df[desc_col].astype(str).str.upper().str.contains(
                     'DINERS CLUB|CIA DE SERV|DE PROCESOS DE MEDIOS|DINERS CLUB PERU S|DE PAYU PERU S.A.C|COMPAN', 
-                    na=False
+                    na=False, regex=True
                 )
             ].copy()
             
