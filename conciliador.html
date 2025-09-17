@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Asistente de Conciliación - Santiago Queirolo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
+  
+  <style>
+    * { font-family: 'Inter', sans-serif; }
+    
+    .conciliador-app {
+      width: 1200px;
+      height: 800px;
+      margin: 0 auto;
+      padding: 10px;
+      display: flex;
+      gap: 20px;
+    }
+    
+    .chat-section {
+      width: 40%;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .actions-section {
+      width: 60%;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+    
+    .chat-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 0;
+      margin-bottom: 10px;
+    }
+    
+    .chat-area::-webkit-scrollbar { width: 6px; }
+    .chat-area::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 3px; }
+    .chat-area::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 3px; }
+    
+    .typing-dot {
+      width: 8px; height: 8px; border-radius: 50%; background-color: #9CA3AF;
+      animation: typing 1.4s infinite ease-in-out;
+    }
+    .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+    .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+    @keyframes typing {
+      0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+    
+    .fade-in { animation: fadeIn 0.5s ease-in; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .select-arrow {
+      color: #111827 !important;
+      background-color: #ffffff !important;
+      border: 2px solid #e5e7eb !important;
+      border-radius: 0.5rem !important;
+      padding: 0.75rem 2.5rem 0.75rem 1rem !important;
+      font-size: 0.875rem !important;
+      line-height: 1.25rem !important;
+      height: auto !important;
+      min-height: 44px !important;
+      -webkit-appearance: none !important;
+      appearance: none !important;
+      background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e") !important;
+      background-position: right 0.75rem center !important;
+      background-repeat: no-repeat !important;
+      background-size: 1.25em 1.25em !important;
+    }
+    
+    .select-arrow:focus {
+      border-color: #3b82f6 !important;
+      box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
+      outline: none !important;
+    }
+    
+    .select-arrow[data-has-value="false"] {
+      color: #9CA3AF !important;
+    }
+    
+    .hidden { display: none; }
+    
+    @media (max-width: 1200px) {
+      .conciliador-app {
+        width: 100%;
+        flex-direction: column;
+        height: auto;
+      }
+      .chat-section, .actions-section { width: 100%; }
+      .chat-section { height: 300px; }
+    }
+  </style>
+</head>
+<body class="bg-gray-50">
+  <div class="conciliador-app">
+    <!-- Sección del Chat -->
+    <div class="chat-section">
+      <div id="chat-messages" class="chat-area space-y-4">
+        <!-- Los mensajes aparecerán aquí -->
+      </div>
+      
+      <div id="typing-indicator" class="hidden flex items-center space-x-2 text-gray-500">
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+        <div class="typing-dot"></div>
+      </div>
+    </div>
+
+    <!-- Sección de Acciones -->
+    <div class="actions-section">
+      <div id="input-area" class="hidden">
+      
+      <!-- Paso 1: Selección de Moneda -->
+      <div id="step-1" class="p-5 bg-white rounded-xl shadow-lg border border-gray-200">
+        <div class="grid grid-cols-2 gap-4 items-end">
+          <select id="currency-selector" class="select-arrow" data-has-value="false">
+            <option value="">Seleccionar moneda</option>
+            <option value="PEN">PEN</option>
+            <option value="USD">USD</option>
+          </select>
+          <button id="continue-step-1" class="py-4 px-6 w-full text-sm font-semibold rounded-lg border border-transparent text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:pointer-events-none transition-all duration-200" disabled>
+            Continuar
+          </button>
+        </div>
+      </div>
+
+      <!-- Paso 2: Carga de archivo -->
+      <div id="step-2" class="p-5 bg-white rounded-xl shadow-lg border border-gray-200 hidden">
+        <div id="upload-area" class="p-4 text-center border-2 border-dashed border-orange-300 rounded-xl bg-orange-50 hover:bg-orange-100 transition-colors duration-200 mb-3 cursor-pointer">
+          <div class="mb-2">
+            <i class="fas fa-file-invoice text-2xl text-orange-400 mb-2"></i>
+            <p id="upload-title" class="text-sm font-medium text-orange-700">Arrastra el extracto EECC aquí o haz clic</p>
+          </div>
+          <input type="file" id="file-input" accept=".xlsx,.xls" class="hidden">
+        </div>
+        <div id="file-display-container"></div>
+        <div class="flex justify-end gap-4 mt-4">
+          <button id="continue-step-2" class="py-3 px-6 inline-flex items-center gap-x-2 text-sm font-semibold rounded-lg border border-transparent text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:pointer-events-none transition-all duration-200" disabled>
+            Continuar
+          </button>
+        </div>
+      </div>
+
+      <!-- Paso 3: Carga de archivos de conciliación -->
+      <div id="step-3" class="p-5 bg-white rounded-xl shadow-lg border border-gray-200 hidden">
+        <div class="space-y-4">
+          <!-- AMEX Section -->
+          <div class="grid grid-cols-2 gap-4">
+            <div id="amex-upload-area" class="p-4 text-center border-2 border-dashed border-blue-300 rounded-xl bg-blue-50 hover:bg-blue-100 transition-colors duration-200 flex flex-col justify-center items-center h-24 cursor-pointer">
+              <i class="fas fa-file-invoice-dollar text-2xl text-blue-400 mb-2"></i>
+              <p class="text-sm font-medium text-blue-700">Arrastra archivos AMEX</p>
+            </div>
+            <div id="amex-file-list" class="space-y-1 max-h-24 overflow-y-auto pr-2"></div>
+          </div>
+          
+          <!-- DINERS Section -->
+          <div class="grid grid-cols-2 gap-4">
+            <div id="diners-upload-area" class="p-4 text-center border-2 border-dashed border-green-300 rounded-xl bg-green-50 hover:bg-green-100 transition-colors duration-200 flex flex-col justify-center items-center h-24 cursor-pointer">
+              <i class="fas fa-credit-card text-2xl text-green-400 mb-2"></i>
+              <p class="text-sm font-medium text-green-700">Arrastra archivos DINERS</p>
+            </div>
+            <div id="diners-file-list" class="space-y-1 max-h-24 overflow-y-auto pr-2"></div>
+          </div>
+          
+          <!-- MC Section -->
+          <div class="grid grid-cols-2 gap-4">
+            <div id="mc-upload-area" class="p-4 text-center border-2 border-dashed border-red-300 rounded-xl bg-red-50 hover:bg-red-100 transition-colors duration-200 flex flex-col justify-center items-center h-24 cursor-pointer">
+              <i class="fab fa-cc-mastercard text-2xl text-red-400 mb-2"></i>
+              <p class="text-sm font-medium text-red-700">Arrastra archivos MC</p>
+            </div>
+            <div id="mc-file-list" class="space-y-1 max-h-24 overflow-y-auto pr-2"></div>
+          </div>
+          
+          <!-- VISA Section -->
+          <div class="grid grid-cols-2 gap-4">
+            <div id="visa-upload-area" class="p-4 text-center border-2 border-dashed border-purple-300 rounded-xl bg-purple-50 hover:bg-purple-100 transition-colors duration-200 flex flex-col justify-center items-center h-24 cursor-pointer">
+              <i class="fab fa-cc-visa text-2xl text-purple-400 mb-2"></i>
+              <p class="text-sm font-medium text-purple-700">Arrastra archivos VISA</p>
+            </div>
+            <div id="visa-file-list" class="space-y-1 max-h-24 overflow-y-auto pr-2"></div>
+          </div>
+          
+          <!-- PAYU Section (solo para USD) -->
+          <div id="payu-section" class="grid grid-cols-2 gap-4 hidden">
+            <div id="payu-upload-area" class="p-4 text-center border-2 border-dashed border-yellow-300 rounded-xl bg-yellow-50 hover:bg-yellow-100 transition-colors duration-200 flex flex-col justify-center items-center h-24 cursor-pointer">
+              <i class="fas fa-money-bill-wave text-2xl text-yellow-400 mb-2"></i>
+              <p class="text-sm font-medium text-yellow-700">Arrastra archivos PAYU</p>
+            </div>
+            <div id="payu-file-list" class="space-y-1 max-h-24 overflow-y-auto pr-2"></div>
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-4 mt-6">
+          <button id="continue-step-3" class="py-3 px-6 inline-flex items-center gap-x-2 text-sm font-semibold rounded-lg border border-transparent text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:pointer-events-none transition-all duration-200" disabled>
+            Conciliar todo
+          </button>
+        </div>
+      </div>
+
+      <!-- Paso 4: Procesamiento -->
+      <div id="step-4" class="p-6 bg-white rounded-xl shadow-lg border border-gray-200 hidden">
+        <div class="text-center">
+          <div class="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
+            <i class="fas fa-cog text-white text-2xl animate-spin"></i>
+          </div>
+          <h3 class="text-xl font-semibold text-gray-900 mb-4">Procesando conciliación...</h3>
+          <p class="text-gray-600 mb-6">Estoy analizando los extractos y aplicando las reglas.</p>
+        </div>
+      </div>
+
+      <!-- Paso 5: Descarga -->
+      <div id="step-5" class="p-6 bg-white rounded-xl shadow-lg border border-gray-200 hidden">
+        <div class="text-center">
+          <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <i class="fas fa-check text-green-600 text-2xl"></i>
+          </div>
+          <h3 class="text-xl font-semibold text-gray-900 mb-4">¡Conciliación lista!</h3>
+          <p class="text-gray-600 mb-6">Tu archivo de extracto ha sido generado.</p>
+          <button id="download-excel" class="py-4 px-8 inline-flex items-center gap-x-2 text-base font-semibold rounded-lg border border-transparent text-white bg-green-600 hover:bg-green-700 transition-all duration-200">
+            <i class="fas fa-download"></i>
+            Descargar Excel
+          </button>
+        </div>
+      </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // --- STATE MANAGEMENT ---
+      let currentStep = 1;
+      let selectedCurrency = null;
+      let uploadedFile = null;
+      let files = {
+        amex: [],
+        diners: [],
+        mc: [],
+        visa: [],
+        payu: []
+      };
+      let isProcessing = false;
+      let result = null;
+
+      // --- INITIALIZATION ---
+      setTimeout(() => {
+        showTypingIndicator();
+        setTimeout(() => {
+          hideTypingIndicator();
+          addBotMessage('¡Hola! 👋 Soy tu Asistente de Conciliación. Para empezar, por favor, selecciona una moneda.');
+          setTimeout(() => {
+            showStep(1);
+            setupEventListeners();
+          }, 800);
+        }, 1000);
+      }, 500);
+
+      // --- EVENT LISTENERS ---
+      function setupEventListeners() {
+        // Step 1: Currency selection
+        const currencySelector = document.getElementById('currency-selector');
+        const continueStep1Btn = document.getElementById('continue-step-1');
+
+        currencySelector.addEventListener('change', (e) => {
+          e.target.dataset.hasValue = !!e.target.value;
+          selectedCurrency = e.target.value;
+          continueStep1Btn.disabled = !selectedCurrency;
+        });
+
+        continueStep1Btn.addEventListener('click', goToStep2);
+
+        // Step 2: File upload
+        const fileInput = document.getElementById('file-input');
+        const continueStep2Btn = document.getElementById('continue-step-2');
+        const uploadArea = document.getElementById('upload-area');
+        
+        fileInput.addEventListener('change', (e) => handleFileUpload(e.target.files[0]));
+        
+        // Drag and Drop listeners
+        uploadArea.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          uploadArea.classList.add('border-blue-500', 'bg-blue-50');
+        });
+
+        uploadArea.addEventListener('dragleave', (e) => {
+          e.preventDefault();
+          uploadArea.classList.remove('border-blue-500', 'bg-blue-50');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+          e.preventDefault();
+          uploadArea.classList.remove('border-blue-500', 'bg-blue-50');
+          const droppedFiles = Array.from(e.dataTransfer.files);
+          if (droppedFiles.length > 0) {
+            handleFileUpload(droppedFiles[0]);
+          }
+        });
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        continueStep2Btn.addEventListener('click', goToStep3);
+        
+        // Step 3: Multiple file uploads with drag and drop
+        setupFileUploadArea('amex', 'blue');
+        setupFileUploadArea('diners', 'green');
+        setupFileUploadArea('mc', 'red');
+        setupFileUploadArea('visa', 'purple');
+        setupFileUploadArea('payu', 'yellow');
+
+        const reconcileBtn = document.getElementById('continue-step-3');
+        reconcileBtn.addEventListener('click', () => {
+          goToStep4();
+        });
+
+        // Step 5: Download
+        const downloadBtn = document.getElementById('download-excel');
+        downloadBtn.addEventListener('click', downloadResult);
+      }
+
+      function setupFileUploadArea(type, color) {
+        const uploadArea = document.getElementById(`${type}-upload-area`);
+        const fileList = document.getElementById(`${type}-file-list`);
+        
+        uploadArea.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          uploadArea.classList.add(`border-${color}-500`, `bg-${color}-200`);
+        });
+
+        uploadArea.addEventListener('dragleave', (e) => {
+          e.preventDefault();
+          uploadArea.classList.remove(`border-${color}-500`, `bg-${color}-200`);
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+          e.preventDefault();
+          uploadArea.classList.remove(`border-${color}-500`, `bg-${color}-200`);
+          handleMultipleFileUpload(type, Array.from(e.dataTransfer.files));
+        });
+
+        uploadArea.addEventListener('click', () => {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.multiple = true;
+          input.accept = '.xlsx,.xls';
+          input.addEventListener('change', (e) => {
+            handleMultipleFileUpload(type, Array.from(e.target.files));
+          });
+          input.click();
+        });
+      }
+
+      // --- FILE HANDLING ---
+      async function handleFileUpload(file) {
+        if (!file) return;
+
+        uploadedFile = file;
+        displayUploadedFile(file);
+
+        const formData = new FormData();
+        formData.append('files', file);
+
+        try {
+          const response = await fetch('/api/upload/extracto', {
+            method: 'POST',
+            body: formData
+          });
+          
+          const data = await response.json();
+          
+          if (response.ok) {
+            addBotMessage(`✅ ${data.message}`);
+            document.getElementById('continue-step-2').disabled = false;
+          } else {
+            addBotMessage(`❌ Error: ${data.detail}`);
+          }
+        } catch (error) {
+          addBotMessage('❌ Error subiendo extracto. Verifica el archivo.');
+        }
+      }
+
+      function displayUploadedFile(file) {
+        const fileDisplayContainer = document.getElementById('file-display-container');
+        fileDisplayContainer.innerHTML = `
+          <div class="p-1 bg-orange-50 border border-orange-200 rounded text-xs flex items-center justify-between mt-2">
+            <div class="flex items-center gap-2 flex-1 min-w-0">
+              <i class="fas fa-file-excel text-orange-600 text-xs"></i>
+              <span class="font-medium text-orange-900 truncate">${file.name}</span>
+            </div>
+            <button onclick="removeFile()" class="p-1 text-red-500 hover:text-red-700">
+              <i class="fas fa-times text-xs"></i>
+            </button>
+          </div>`;
+        fileDisplayContainer.classList.remove('hidden');
+      }
+
+      window.removeFile = function() {
+        uploadedFile = null;
+        document.getElementById('file-input').value = '';
+        const fileDisplayContainer = document.getElementById('file-display-container');
+        fileDisplayContainer.innerHTML = '';
+        fileDisplayContainer.classList.add('hidden');
+        document.getElementById('continue-step-2').disabled = true;
+      }
+
+      async function handleMultipleFileUpload(type, fileList) {
+        if (!fileList.length) return;
+
+        const formData = new FormData();
+        fileList.forEach(file => formData.append('files', file));
+
+        try {
+          const response = await fetch(`/api/upload/${type}`, {
+            method: 'POST',
+            body: formData
+          });
+          
+          const data = await response.json();
+          
+          if (response.ok) {
+            files[type] = files[type].concat(fileList.map(f => f.name));
+            addBotMessage(`✅ ${data.message}`);
+            displayFileList(type, fileList);
+            updateContinueButton();
+          } else {
+            addBotMessage(`❌ Error cargando ${type}: ${data.detail}`);
+          }
+        } catch (error) {
+          addBotMessage(`❌ Error subiendo archivos ${type}.`);
+        }
+      }
+
+      function displayFileList(type, fileList) {
+        const container = document.getElementById(`${type}-file-list`);
+        const colorMap = {
+          amex: 'blue',
+          diners: 'green',
+          mc: 'red',
+          visa: 'purple',
+          payu: 'yellow'
+        };
+        const color = colorMap[type];
+        
+        fileList.forEach(file => {
+          const fileDiv = document.createElement('div');
+          fileDiv.className = `p-1 bg-${color}-50 border border-${color}-200 rounded text-xs flex items-center justify-between`;
+          fileDiv.innerHTML = `
+            <div class="flex items-center gap-2 flex-1 min-w-0">
+              <i class="fas fa-file-excel text-${color}-600 text-xs"></i>
+              <span class="font-medium text-${color}-900 truncate">${file.name}</span>
+            </div>
+            <button class="p-1 text-red-500 hover:text-red-700" onclick="removeFileFromList('${type}', '${file.name}', this)">
+              <i class="fas fa-times text-xs"></i>
+            </button>`;
+          container.appendChild(fileDiv);
+        });
+      }
+
+      window.removeFileFromList = function(type, fileName, button) {
+        files[type] = files[type].filter(f => f !== fileName);
+        button.parentElement.remove();
+        updateContinueButton();
+      }
+
+      function updateContinueButton() {
+        const reconcileBtn = document.getElementById('continue-step-3');
+        const hasFiles = Object.values(files).some(f => f.length > 0);
+        reconcileBtn.disabled = !hasFiles;
+      }
+
+      // --- CHAT UI FUNCTIONS ---
+      function showTypingIndicator() {
+        document.getElementById('typing-indicator').classList.remove('hidden');
+        scrollToBottom();
+      }
+
+      function hideTypingIndicator() {
+        document.getElementById('typing-indicator').classList.add('hidden');
+      }
+
+      function addBotMessage(message) {
+        const chatMessages = document.getElementById('chat-messages');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'flex items-start gap-3 fade-in';
+        messageDiv.innerHTML = `
+          <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
+            <i class="fas fa-robot text-white text-sm"></i>
+          </div>
+          <div class="bg-gray-100 rounded-lg rounded-tl-none p-4 max-w-md">
+            <p class="text-gray-800">${message}</p>
+          </div>`;
+        chatMessages.appendChild(messageDiv);
+        scrollToBottom();
+      }
+
+      function scrollToBottom() {
+        const chatMessages = document.getElementById('chat-messages');
+        setTimeout(() => chatMessages.scrollTop = chatMessages.scrollHeight, 100);
+      }
+      
+      // --- STEP NAVIGATION ---
+      function showStep(stepNumber) {
+        for (let i = 1; i <= 5; i++) {
+          const stepEl = document.getElementById(`step-${i}`);
+          if (stepEl) stepEl.classList.add('hidden');
+        }
+        document.getElementById('input-area').classList.remove('hidden');
+        const stepEl = document.getElementById(`step-${stepNumber}`);
+        stepEl.classList.remove('hidden');
+        stepEl.classList.add('fade-in');
+        currentStep = stepNumber;
+      }
+
+      async function goToStep2() {
+        // Set currency
+        try {
+          const response = await fetch('/api/set-currency', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ currency: selectedCurrency })
+          });
+          
+          if (response.ok) {
+            addBotMessage(`Perfecto, has seleccionado ${selectedCurrency}. Ahora, por favor carga el archivo de extracto principal.`);
+            showStep(2);
+          }
+        } catch (error) {
+          addBotMessage('❌ Error configurando moneda. Inténtalo de nuevo.');
+        }
+      }
+
+      function goToStep3() {
+        addBotMessage(`Extracto principal cargado: ${uploadedFile.name}. Ahora, por favor, carga los archivos de conciliación.`);
+        showStep(3);
+        
+        // Mostrar/ocultar sección PAYU según la moneda
+        const payuSection = document.getElementById('payu-section');
+        if (selectedCurrency === 'USD') {
+          payuSection.classList.remove('hidden');
+        } else {
+          payuSection.classList.add('hidden');
+        }
+      }
+
+      async function goToStep4() {
+        const totalFiles = Object.values(files).reduce((sum, arr) => sum + arr.length, 0);
+        addBotMessage(`Iniciando proceso de conciliación con ${totalFiles} archivo(s) de conciliación.`);
+        showStep(4);
+        
+        // Simular procesamiento y luego hacer la llamada real
+        setTimeout(async () => {
+          try {
+            const response = await fetch('/api/reconcile', {
+              method: 'POST'
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+              result = data;
+              goToStep5();
+            } else {
+              addBotMessage(`❌ Error en conciliación: ${data.detail}`);
+              showStep(3);
+            }
+          } catch (error) {
+            addBotMessage('❌ Error durante la conciliación. Revisa los archivos.');
+            showStep(3);
+          }
+        }, 2000);
+      }
+
+      function goToStep5() {
+        addBotMessage(`¡Proceso completado! Tu archivo con el extracto conciliado está listo para descargar.`);
+        showStep(5);
+      }
+
+      function downloadResult() {
+        if (result?.download_url) {
+          window.location.href = result.download_url;
+          addBotMessage('📥 Descarga iniciada. ¡Proceso completado!');
+        }
+      }
+    });
+  </script>
+</body>
+</html>

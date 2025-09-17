@@ -1,0 +1,2684 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Asistente de Conciliación - Santiago Queirolo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  
+  <style>
+    /* Estilos generales de la aplicación (similares a Reporte de Ventas) */
+    .conciliador-app {
+      font-family: 'Inter', sans-serif;
+      width: 1200px;
+      height: 800px;
+      margin: 0 auto;
+      padding: 10px;
+      display: flex;
+      gap: 20px;
+    }
+    
+    .chat-section {
+      width: 40%;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .actions-section {
+      width: 60%;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+    
+    .chat-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 0;
+      margin-bottom: 10px;
+    }
+    
+    .chat-area::-webkit-scrollbar { width: 6px; }
+    .chat-area::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 3px; }
+    .chat-area::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 3px; }
+    
+    .chat-area p,
+    .chat-area div,
+    .chat-area span {
+      margin-bottom: 0 !important;
+      line-height: 1.3 !important;
+    }
+    
+    .typing-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    
+    .typing-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #9CA3AF;
+      animation: typing 1.4s infinite ease-in-out;
+    }
+    
+    .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+    .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+    
+    @keyframes typing {
+      0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+    
+    .fade-in {
+      animation: fadeIn 0.5s ease-in;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .conciliador-app select.select-arrow {
+      color: #111827 !important;
+      background-color: #ffffff !important;
+      border: 2px solid #e5e7eb !important;
+      border-radius: 0.5rem !important;
+      padding: 0.75rem 2.5rem 0.75rem 1rem !important;
+      font-size: 0.875rem !important;
+      line-height: 1.25rem !important;
+      height: auto !important;
+      min-height: 44px !important;
+      -webkit-appearance: none !important;
+      appearance: none !important;
+      background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e") !important;
+      background-position: right 0.75rem center !important;
+      background-repeat: no-repeat !important;
+      background-size: 1.25em 1.25em !important;
+    }
+
+    .conciliador-app select.select-arrow:focus {
+      border-color: #3b82f6 !important;
+      box-shadow: 0 0 0 3px rgba(59,130,246,.25) !important;
+      outline: none !important;
+    }
+
+    .conciliador-app select.select-arrow[data-has-value="false"] {
+      color: #9CA3AF !important;
+    }
+
+    .hidden {
+      display: none;
+    }
+    
+    @media (max-width: 1200px) {
+      .conciliador-app {
+        width: 100%;
+        flex-direction: column;
+        height: auto;
+      }
+      .chat-section, .actions-section { width: 100%; }
+      .chat-section { height: 300px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="conciliador-app">
+    <!-- Sección del Chat -->
+    <div class="chat-section">
+      <div id="chat-messages" class="chat-area space-y-4">
+        <!-- Los mensajes aparecerán aquí -->
+      </div>
+    </div>
+
+    <!-- Sección de Acciones -->
+    <div class="actions-section">
+      <div id="input-area" class="hidden">
+      
+      <!-- Paso 1: Selección de Moneda -->
+      <div id="step-1" class="p-5 bg-white rounded-xl shadow-lg border border-gray-200">
+        <div class="grid grid-cols-2 gap-4 items-end">
+          <select id="currency-selector" class="select-arrow py-4 px-4 pe-9 block w-full border-gray-200 rounded-lg text-sm focus:border-blue-500 focus:ring-blue-500" data-has-value="false">
+            <option value="">Seleccionar moneda</option>
+            <option value="PEN">PEN</option>
+            <option value="USD">USD</option>
+          </select>
+          <button id="continue-step-1" class="py-4 px-6 w-full text-sm font-semibold rounded-lg border border-transparent text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:pointer-events-none transition-all duration-200" disabled>
+            Continuar
+          </button>
+        </div>
+      </div>
+
+      <!-- Paso 2: Carga de archivo -->
+      <div id="step-2" class="p-5 bg-white rounded-xl shadow-lg border border-gray-200 hidden">
+        <div id="upload-area" class="p-4 text-center border-2 border-dashed border-orange-300 rounded-xl bg-orange-50 hover:bg-orange-100 transition-colors duration-200 mb-3">
+          <div class="mb-2">
+            <i class="fas fa-file-invoice text-2xl text-orange-400 mb-2"></i>
+            <p id="upload-title" class="text-sm font-medium text-orange-700">Arrastra el extracto EECC aquí</p>
+          </div>
+          <input type="file" id="file-input" accept=".xlsx,.xls" class="hidden">
+        </div>
+        <div id="file-display-container"></div>
+        <div class="flex justify-end gap-4 mt-4">
+          <button id="continue-step-2" class="py-3 px-6 inline-flex items-center gap-x-2 text-sm font-semibold rounded-lg border border-transparent text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:pointer-events-none transition-all duration-200" disabled>
+            Continuar
+          </button>
+        </div>
+      </div>
+
+      <!-- Paso 3: Carga de archivos de conciliación -->
+      <div id="step-3" class="p-5 bg-white rounded-xl shadow-lg border border-gray-200 hidden">
+        <div class="space-y-4">
+          <!-- AMEX Section -->
+          <div class="grid grid-cols-2 gap-4">
+            <div id="amex-upload-area" class="p-4 text-center border-2 border-dashed border-blue-300 rounded-xl bg-blue-50 hover:bg-blue-100 transition-colors duration-200 flex flex-col justify-center items-center h-24">
+              <i class="fas fa-file-invoice-dollar text-2xl text-blue-400 mb-2"></i>
+              <p class="text-sm font-medium text-blue-700">Arrastra archivos AMEX</p>
+            </div>
+            <div id="amex-file-list" class="space-y-1 max-h-24 overflow-y-auto pr-2"></div>
+          </div>
+          <!-- DINERS Section -->
+          <div class="grid grid-cols-2 gap-4">
+            <div id="diners-upload-area" class="p-4 text-center border-2 border-dashed border-green-300 rounded-xl bg-green-50 hover:bg-green-100 transition-colors duration-200 flex flex-col justify-center items-center h-24">
+              <i class="fas fa-credit-card text-2xl text-green-400 mb-2"></i>
+              <p class="text-sm font-medium text-green-700">Arrastra archivos DINERS</p>
+            </div>
+            <div id="diners-file-list" class="space-y-1 max-h-24 overflow-y-auto pr-2"></div>
+          </div>
+          <!-- MC Section -->
+          <div class="grid grid-cols-2 gap-4">
+            <div id="mc-upload-area" class="p-4 text-center border-2 border-dashed border-red-300 rounded-xl bg-red-50 hover:bg-red-100 transition-colors duration-200 flex flex-col justify-center items-center h-24">
+              <i class="fab fa-cc-mastercard text-2xl text-red-400 mb-2"></i>
+              <p class="text-sm font-medium text-red-700">Arrastra archivos MC</p>
+            </div>
+            <div id="mc-file-list" class="space-y-1 max-h-24 overflow-y-auto pr-2"></div>
+          </div>
+          <!-- VISA Section -->
+          <div class="grid grid-cols-2 gap-4">
+            <div id="visa-upload-area" class="p-4 text-center border-2 border-dashed border-purple-300 rounded-xl bg-purple-50 hover:bg-purple-100 transition-colors duration-200 flex flex-col justify-center items-center h-24">
+              <i class="fab fa-cc-visa text-2xl text-purple-400 mb-2"></i>
+              <p class="text-sm font-medium text-purple-700">Arrastra archivos VISA</p>
+            </div>
+            <div id="visa-file-list" class="space-y-1 max-h-24 overflow-y-auto pr-2"></div>
+          </div>
+          <!-- PAYU Section (solo para USD) -->
+          <div id="payu-section" class="grid grid-cols-2 gap-4 hidden">
+            <div id="payu-upload-area" class="p-4 text-center border-2 border-dashed border-yellow-300 rounded-xl bg-yellow-50 hover:bg-yellow-100 transition-colors duration-200 flex flex-col justify-center items-center h-24">
+              <i class="fas fa-money-bill-wave text-2xl text-yellow-400 mb-2"></i>
+              <p class="text-sm font-medium text-yellow-700">Arrastra archivos PAYU</p>
+            </div>
+            <div id="payu-file-list" class="space-y-1 max-h-24 overflow-y-auto pr-2"></div>
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-4 mt-6">
+          <button id="continue-step-3" class="py-3 px-6 inline-flex items-center gap-x-2 text-sm font-semibold rounded-lg border border-transparent text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:pointer-events-none transition-all duration-200" disabled>
+            Conciliar todo
+          </button>
+        </div>
+      </div>
+
+      <!-- Paso 4: Procesamiento -->
+      <div id="step-4" class="p-6 bg-white rounded-xl shadow-lg border border-gray-200 hidden">
+        <div class="text-center">
+          <div class="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
+            <i class="fas fa-cog text-white text-2xl animate-spin"></i>
+          </div>
+          <h3 class="text-xl font-semibold text-gray-900 mb-4">Procesando conciliación...</h3>
+          <p class="text-gray-600 mb-6">Estoy analizando los extractos y aplicando las reglas.</p>
+        </div>
+      </div>
+
+      <!-- Paso 5: Descarga -->
+      <div id="step-5" class="p-6 bg-white rounded-xl shadow-lg border border-gray-200 hidden">
+        <div class="text-center">
+          <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <i class="fas fa-check text-green-600 text-2xl"></i>
+          </div>
+          <h3 class="text-xl font-semibold text-gray-900 mb-4">¡Conciliación lista!</h3>
+          <p class="text-gray-600 mb-6">Tu archivo de extracto ha sido generado.</p>
+          <button id="download-excel" class="py-4 px-8 inline-flex items-center gap-x-2 text-base font-semibold rounded-lg border border-transparent text-white bg-green-600 hover:bg-green-700 transition-all duration-200">
+            <i class="fas fa-download"></i>
+            Descargar Excel
+          </button>
+        </div>
+      </div>
+
+      </div>
+    </div>
+  </div>
+
+
+
+
+  <script>
+
+    document.addEventListener('DOMContentLoaded', function() {
+      // --- STATE MANAGEMENT ---
+      let currentStep = 1;
+      let selectedCurrency = null;
+
+      let uploadedFile = null;
+      let amexFiles = [];
+      let dinersFiles = [];
+      let mcFiles = [];
+      let visaFiles = [];
+      let payuFiles = [];
+      let processedData = { extracto: [], amex: [], diners: [], mc: [], visa: [], payu: [] };
+
+      // --- INITIALIZATION ---
+      // console.log('🚀 Asistente de Conciliación iniciado');
+
+      setTimeout(() => {
+        showTypingIndicator();
+        setTimeout(() => {
+          hideTypingIndicator();
+          addBotMessage('¡Hola! 👋 Soy tu Asistente de Conciliación. Para empezar, por favor, selecciona una moneda.');
+          setTimeout(() => {
+            showStep(1);
+            setupEventListeners();
+          }, 800);
+        }, 1000);
+      }, 500);
+
+      // --- EVENT LISTENERS ---
+      function setupEventListeners() {
+        // Step 1: Currency selection
+        const currencySelector = document.getElementById('currency-selector');
+        const continueStep1Btn = document.getElementById('continue-step-1');
+
+        currencySelector.addEventListener('change', (e) => {
+          e.target.dataset.hasValue = !!e.target.value;
+          selectedCurrency = e.target.value;
+          continueStep1Btn.disabled = !selectedCurrency;
+        });
+
+        continueStep1Btn.addEventListener('click', goToStep2);
+
+        // Step 2: File upload & Drag and Drop
+        const fileInput = document.getElementById('file-input');
+        const continueStep2Btn = document.getElementById('continue-step-2');
+        const uploadArea = document.getElementById('upload-area');
+        
+        fileInput.addEventListener('change', (e) => handleFileUpload(e.target.files[0]));
+        
+        const fileDisplayContainer = document.getElementById('file-display-container');
+
+        // --- FILE HANDLING & UI LOGIC ---
+
+        function displayUploadedFile(file) {
+          const fileDisplayContainer = document.getElementById('file-display-container');
+          fileDisplayContainer.innerHTML = `
+            <div class="p-1 bg-orange-50 border border-orange-200 rounded text-xs flex items-center justify-between mt-2">
+              <div class="flex items-center gap-2 flex-1 min-w-0">
+                <i class="fas fa-file-excel text-orange-600 text-xs"></i>
+                <span class="font-medium text-orange-900 truncate">${file.name}</span>
+              </div>
+              <button onclick="removeFile()" class="p-1 text-red-500 hover:text-red-700">
+                <i class="fas fa-times text-xs"></i>
+              </button>
+            </div>`;
+          fileDisplayContainer.classList.remove('hidden');
+          document.getElementById('continue-step-2').disabled = false;
+        }
+
+        window.removeFile = function() {
+          uploadedFile = null;
+          document.getElementById('file-input').value = '';
+          const fileDisplayContainer = document.getElementById('file-display-container');
+          fileDisplayContainer.innerHTML = '';
+          fileDisplayContainer.classList.add('hidden');
+          document.getElementById('continue-step-2').disabled = true;
+          // console.log('Archivo de extracto eliminado');
+        }
+
+        function handleFileUpload(file) {
+          if (!file) return;
+
+          uploadedFile = file;
+          // console.log('Archivo cargado:', uploadedFile.name);
+
+          displayUploadedFile(file);
+        }
+
+        // Drag and Drop listeners
+        uploadArea.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          uploadArea.classList.add('border-blue-500', 'bg-blue-50');
+        });
+
+        uploadArea.addEventListener('dragleave', (e) => {
+          e.preventDefault();
+          uploadArea.classList.remove('border-blue-500', 'bg-blue-50');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+          e.preventDefault();
+          uploadArea.classList.remove('border-blue-500', 'bg-blue-50');
+          const files = Array.from(e.dataTransfer.files);
+          if (files.length > 0) {
+            fileInput.files = e.dataTransfer.files;
+            handleFileUpload(files[0]);
+          }
+        });
+
+        continueStep2Btn.addEventListener('click', goToStep3);
+        
+        // Step 3: AMEX and DINERS Files
+        const amexFileInput = document.getElementById('amex-file-input');
+        const amexUploadArea = document.getElementById('amex-upload-area');
+        const dinersFileInput = document.getElementById('diners-file-input');
+        const dinersUploadArea = document.getElementById('diners-upload-area');
+        const mcFileInput = document.getElementById('mc-file-input');
+        const mcUploadArea = document.getElementById('mc-upload-area');
+        const visaUploadArea = document.getElementById('visa-upload-area');
+        const reconcileBtn = document.getElementById('continue-step-3');
+
+        // AMEX handlers - solo drag and drop
+        amexUploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            amexUploadArea.classList.add('border-blue-500', 'bg-blue-200');
+        });
+
+        amexUploadArea.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            amexUploadArea.classList.remove('border-blue-500', 'bg-blue-200');
+        });
+
+        amexUploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            amexUploadArea.classList.remove('border-blue-500', 'bg-blue-200');
+            handleAmexUpload(Array.from(e.dataTransfer.files));
+        });
+
+        // DINERS handlers - solo drag and drop
+        dinersUploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dinersUploadArea.classList.add('border-green-500', 'bg-green-200');
+        });
+
+        dinersUploadArea.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            dinersUploadArea.classList.remove('border-green-500', 'bg-green-200');
+        });
+
+        dinersUploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dinersUploadArea.classList.remove('border-green-500', 'bg-green-200');
+            handleDinersUpload(Array.from(e.dataTransfer.files));
+        });
+
+        // MC handlers - solo drag and drop
+        mcUploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            mcUploadArea.classList.add('border-red-500', 'bg-red-200');
+        });
+
+        mcUploadArea.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            mcUploadArea.classList.remove('border-red-500', 'bg-red-200');
+        });
+
+        mcUploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            mcUploadArea.classList.remove('border-red-500', 'bg-red-200');
+            handleMcUpload(Array.from(e.dataTransfer.files));
+        });
+
+        // VISA handlers
+        visaUploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            visaUploadArea.classList.add('border-purple-500', 'bg-purple-200');
+        });
+
+        visaUploadArea.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            visaUploadArea.classList.remove('border-purple-500', 'bg-purple-200');
+        });
+
+        visaUploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            visaUploadArea.classList.remove('border-purple-500', 'bg-purple-200');
+            handleVisaUpload(Array.from(e.dataTransfer.files));
+        });
+
+        // PAYU handlers
+        const payuUploadArea = document.getElementById('payu-upload-area');
+        payuUploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            payuUploadArea.classList.add('border-yellow-500', 'bg-yellow-200');
+        });
+
+        payuUploadArea.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            payuUploadArea.classList.remove('border-yellow-500', 'bg-yellow-200');
+        });
+
+        payuUploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            payuUploadArea.classList.remove('border-yellow-500', 'bg-yellow-200');
+            handlePayuUpload(Array.from(e.dataTransfer.files));
+        });
+
+        reconcileBtn.addEventListener('click', () => {
+          goToStep4();
+        });
+
+        // Step 5: Download
+        const downloadBtn = document.getElementById('download-excel');
+        downloadBtn.addEventListener('click', generateAndDownloadExcel);
+      }
+
+      // --- CHAT UI FUNCTIONS ---
+      function showTypingIndicator() {
+        const chatMessages = document.getElementById('chat-messages');
+        const typingDiv = document.createElement('div');
+        typingDiv.id = 'typing-indicator';
+        typingDiv.className = 'flex items-start gap-3 fade-in';
+        typingDiv.innerHTML = `
+          <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
+            <i class="fas fa-robot text-white text-sm"></i>
+          </div>
+          <div class="bg-gray-100 rounded-lg rounded-tl-none p-4 max-w-md">
+            <div class="typing-indicator">
+              <div class="typing-dot"></div>
+              <div class="typing-dot"></div>
+              <div class="typing-dot"></div>
+            </div>
+          </div>`;
+        chatMessages.appendChild(typingDiv);
+        scrollToBottom();
+      }
+
+      function hideTypingIndicator() {
+        const typingIndicator = document.getElementById('typing-indicator');
+        if (typingIndicator) typingIndicator.remove();
+      }
+
+      function addBotMessage(message) {
+        const chatMessages = document.getElementById('chat-messages');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'flex items-start gap-3 fade-in';
+        messageDiv.innerHTML = `
+          <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
+            <i class="fas fa-robot text-white text-sm"></i>
+          </div>
+          <div class="bg-gray-100 rounded-lg rounded-tl-none p-4 max-w-md">
+            <p class="text-gray-800">${message}</p>
+          </div>`;
+        chatMessages.appendChild(messageDiv);
+        scrollToBottom();
+      }
+
+      function scrollToBottom() {
+        const chatMessages = document.getElementById('chat-messages');
+        setTimeout(() => chatMessages.scrollTop = chatMessages.scrollHeight, 100);
+      }
+      
+      // --- STEP NAVIGATION ---
+      function showStep(stepNumber) {
+        // console.log(`👁️ Mostrando paso ${stepNumber}`);
+        for (let i = 1; i <= 5; i++) {
+          const stepEl = document.getElementById(`step-${i}`);
+          if (stepEl) stepEl.classList.add('hidden');
+        }
+        document.getElementById('input-area').classList.remove('hidden');
+        const stepEl = document.getElementById(`step-${stepNumber}`);
+        stepEl.classList.remove('hidden');
+        stepEl.classList.add('fade-in');
+        currentStep = stepNumber;
+      }
+
+      function goToStep2() {
+        addBotMessage(`Perfecto, has seleccionado ${selectedCurrency}. Ahora, por favor carga el archivo de extracto principal.`);
+        showStep(2);
+      }
+
+      function goToStep3() {
+        addBotMessage(`Extracto principal cargado: ${uploadedFile.name}. Ahora, por favor, carga los archivos de conciliación.`);
+        showStep(3);
+        
+        // Mostrar/ocultar sección PAYU según la moneda
+        const payuSection = document.getElementById('payu-section');
+        if (selectedCurrency === 'USD') {
+          payuSection.classList.remove('hidden');
+        } else {
+          payuSection.classList.add('hidden');
+        }
+      }
+
+      function goToStep4() {
+        addBotMessage(`Iniciando proceso de conciliación con ${amexFiles.length} archivo(s) AMEX.`);
+        showStep(4);
+        // Simular procesamiento
+        setTimeout(() => {
+          processFile();
+        }, 2000);
+      }
+
+      function goToStep5() {
+        addBotMessage(`¡Proceso completado! Tu archivo con el extracto y AMEX conciliados está listo para descargar.`);
+        showStep(5);
+      }
+
+      // --- FILE HANDLING ---
+      // Función para detectar si un nombre de archivo contiene un formato de mes-año (ENE25, FEB26, etc.)
+      function detectarFormatoMesAnio(fileName) {
+        // Lista de abreviaturas de meses en español
+        const meses = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SET', 'OCT', 'NOV', 'DIC'];
+        
+        // Convertir a mayúsculas para facilitar la comparación
+        const fileNameUpper = fileName.toUpperCase();
+        
+        console.log(`🔍 Analizando formato mes-año en archivo: ${fileName}`);
+        console.log(`🔍 Nombre en mayúsculas: ${fileNameUpper}`);
+        
+        // Verificar si contiene alguna de las abreviaturas de mes seguida de 2 dígitos (año)
+        for (const mes of meses) {
+          // Buscar patrón MES + 2 dígitos (ej: ENE25, FEB26)
+          const regex = new RegExp(`${mes}\\d{2}`, 'g');
+          console.log(`🔍 Probando regex: /${mes}\\d{2}/g en "${fileNameUpper}"`);
+          
+          const matches = fileNameUpper.match(regex);
+          if (matches && matches.length > 0) {
+            const match = matches[0];
+            const anio = match.substring(3); // Extraer los 2 dígitos del año
+            console.log(`✅ Formato mes-año encontrado: ${match} -> Mes: ${mes}, Año: ${anio}`);
+            return {
+              encontrado: true,
+              mes: mes,
+              anio: anio
+            };
+          }
+        }
+        
+        console.log(`❌ No se encontró formato mes-año en: ${fileName}`);
+        return { encontrado: false };
+      }
+
+      function handleAmexUpload(files) {
+        const fileList = document.getElementById('amex-file-list');
+        updateContinueButton();
+
+        files.forEach(file => {
+          if (amexFiles.some(f => f.name === file.name)) {
+            addBotMessage(`⚠️ El archivo "${file.name}" ya fue cargado.`);
+            return;
+          }
+
+          // Detectar si el archivo tiene formato mes-año
+          const formatoMesAnio = detectarFormatoMesAnio(file.name);
+          
+          // Guardar la información del formato en una propiedad del archivo
+          file.formatoMesAnio = formatoMesAnio.encontrado;
+          file.mesMesAnio = formatoMesAnio.mes;
+          file.anioMesAnio = formatoMesAnio.anio;
+          
+          console.log(`📄 Archivo AMEX cargado: ${file.name}`);
+          console.log(`   - Formato MMMAA: ${file.formatoMesAnio ? 'Sí' : 'No'}`);
+          if (file.formatoMesAnio) {
+              console.log(`   - Mes: ${file.mesMesAnio}, Año: ${file.anioMesAnio}`);
+          }
+          
+          amexFiles.push(file);
+
+          const fileDiv = document.createElement('div');
+          fileDiv.id = `amex-file-${file.name}`;
+          fileDiv.className = 'p-1 bg-blue-50 border border-blue-200 rounded text-xs flex items-center justify-between';
+          fileDiv.innerHTML = `
+            <div class="flex items-center gap-2 flex-1 min-w-0">
+              <i class="fas fa-file-excel text-blue-600 text-xs"></i>
+              <span class="font-medium text-blue-900 truncate">${file.name}</span>
+              ${file.formatoMesAnio ? `<span class="text-xs text-orange-600 ml-1">(${file.mesMesAnio}${file.anioMesAnio})</span>` : ''}
+            </div>
+            <button class="p-1 text-red-500 hover:text-red-700" onclick="removeAmexFile('${file.name}')">
+              <i class="fas fa-times text-xs"></i>
+            </button>`;
+          fileList.appendChild(fileDiv);
+        });
+
+        updateContinueButton();
+      }
+
+      function handleDinersUpload(files) {
+        const fileList = document.getElementById('diners-file-list');
+        
+        files.forEach(file => {
+          if (dinersFiles.some(f => f.name === file.name)) {
+            addBotMessage(`⚠️ El archivo "${file.name}" ya fue cargado.`);
+            return;
+          }
+
+          // Detectar si el archivo tiene formato mes-año
+          const formatoMesAnio = detectarFormatoMesAnio(file.name);
+          
+          // Guardar la información del formato en una propiedad del archivo
+          file.formatoMesAnio = formatoMesAnio.encontrado;
+          file.mesMesAnio = formatoMesAnio.mes;
+          file.anioMesAnio = formatoMesAnio.anio;
+          
+          console.log(`📄 Archivo DINERS cargado: ${file.name}`);
+          console.log(`   - Formato MMMAA: ${file.formatoMesAnio ? 'Sí' : 'No'}`);
+          if (file.formatoMesAnio) {
+              console.log(`   - Mes: ${file.mesMesAnio}, Año: ${file.anioMesAnio}`);
+          }
+
+          dinersFiles.push(file);
+
+          const fileDiv = document.createElement('div');
+          fileDiv.id = `diners-file-${file.name}`;
+          fileDiv.className = 'p-1 bg-green-50 border border-green-200 rounded text-xs flex items-center justify-between';
+          fileDiv.innerHTML = `
+            <div class="flex items-center gap-2 flex-1 min-w-0">
+              <i class="fas fa-file-excel text-green-600 text-xs"></i>
+              <span class="font-medium text-green-900 truncate">${file.name}</span>
+              ${file.formatoMesAnio ? `<span class="text-xs text-orange-600 ml-1">(${file.mesMesAnio}${file.anioMesAnio})</span>` : ''}
+            </div>
+            <button class="p-1 text-red-500 hover:text-red-700" onclick="removeDinersFile('${file.name}')">
+              <i class="fas fa-times text-xs"></i>
+            </button>`;
+          fileList.appendChild(fileDiv);
+        });
+
+        updateContinueButton();
+      }
+
+      function handleMcUpload(files) {
+        const fileList = document.getElementById('mc-file-list');
+        
+        files.forEach(file => {
+          if (mcFiles.some(f => f.name === file.name)) {
+            addBotMessage(`⚠️ El archivo "${file.name}" ya fue cargado.`);
+            return;
+          }
+
+          // Detectar si el archivo tiene formato mes-año
+          const formatoMesAnio = detectarFormatoMesAnio(file.name);
+          
+          // Guardar la información del formato en una propiedad del archivo
+          file.formatoMesAnio = formatoMesAnio.encontrado;
+          file.mesMesAnio = formatoMesAnio.mes;
+          file.anioMesAnio = formatoMesAnio.anio;
+          
+          console.log(`📄 Archivo MC cargado: ${file.name}`);
+          console.log(`   - Formato MMMAA: ${file.formatoMesAnio ? 'Sí' : 'No'}`);
+          if (file.formatoMesAnio) {
+              console.log(`   - Mes: ${file.mesMesAnio}, Año: ${file.anioMesAnio}`);
+          }
+
+          mcFiles.push(file);
+
+          const fileDiv = document.createElement('div');
+          fileDiv.id = `mc-file-${file.name}`;
+          fileDiv.className = 'p-1 bg-red-50 border border-red-200 rounded text-xs flex items-center justify-between';
+          fileDiv.innerHTML = `
+            <div class="flex items-center gap-2 flex-1 min-w-0">
+              <i class="fas fa-file-excel text-red-600 text-xs"></i>
+              <span class="font-medium text-red-900 truncate">${file.name}</span>
+              ${file.formatoMesAnio ? `<span class="text-xs text-orange-600 ml-1">(${file.mesMesAnio}${file.anioMesAnio})</span>` : ''}
+            </div>
+            <button class="p-1 text-red-500 hover:text-red-700" onclick="removeMcFile('${file.name}')">
+              <i class="fas fa-times text-xs"></i>
+            </button>`;
+          fileList.appendChild(fileDiv);
+        });
+
+        updateContinueButton();
+      }
+
+      function handleVisaUpload(files) {
+        const fileList = document.getElementById('visa-file-list');
+        
+        files.forEach(file => {
+          if (visaFiles.some(f => f.name === file.name)) {
+            addBotMessage(`⚠️ El archivo "${file.name}" ya fue cargado.`);
+            return;
+          }
+
+          // Detectar si el archivo tiene formato mes-año
+          const formatoMesAnio = detectarFormatoMesAnio(file.name);
+          
+          // Guardar la información del formato en una propiedad del archivo
+          file.formatoMesAnio = formatoMesAnio.encontrado;
+          file.mesMesAnio = formatoMesAnio.mes;
+          file.anioMesAnio = formatoMesAnio.anio;
+          
+          console.log(`📄 Archivo VISA cargado: ${file.name}`);
+          console.log(`   - Formato MMMAA: ${file.formatoMesAnio ? 'Sí' : 'No'}`);
+          if (file.formatoMesAnio) {
+              console.log(`   - Mes: ${file.mesMesAnio}, Año: ${file.anioMesAnio}`);
+          }
+
+          visaFiles.push(file);
+
+          const fileDiv = document.createElement('div');
+          fileDiv.id = `visa-file-${file.name}`;
+          fileDiv.className = 'p-1 bg-purple-50 border border-purple-200 rounded text-xs flex items-center justify-between';
+          fileDiv.innerHTML = `
+            <div class="flex items-center gap-2 flex-1 min-w-0">
+              <i class="fas fa-file-excel text-purple-600 text-xs"></i>
+              <span class="font-medium text-purple-900 truncate">${file.name}</span>
+              ${file.formatoMesAnio ? `<span class="text-xs text-orange-600 ml-1">(${file.mesMesAnio}${file.anioMesAnio})</span>` : ''}
+            </div>
+            <button class="p-1 text-red-500 hover:text-red-700" onclick="removeVisaFile('${file.name}')">
+              <i class="fas fa-times text-xs"></i>
+            </button>`;
+          fileList.appendChild(fileDiv);
+        });
+
+        updateContinueButton();
+      }
+
+      function updateContinueButton() {
+        const reconcileBtn = document.getElementById('continue-step-3');
+        const hasFiles = amexFiles.length > 0 || dinersFiles.length > 0 || mcFiles.length > 0 || visaFiles.length > 0 || payuFiles.length > 0;
+        reconcileBtn.disabled = !hasFiles;
+      }
+      
+      window.removeAmexFile = function(fileName) {
+          amexFiles = amexFiles.filter(f => f.name !== fileName);
+          document.getElementById(`amex-file-${fileName}`).remove();
+          updateContinueButton();
+      }
+
+      window.removeDinersFile = function(fileName) {
+          dinersFiles = dinersFiles.filter(f => f.name !== fileName);
+          document.getElementById(`diners-file-${fileName}`).remove();
+          updateContinueButton();
+      }
+
+      window.removeMcFile = function(fileName) {
+          mcFiles = mcFiles.filter(f => f.name !== fileName);
+          document.getElementById(`mc-file-${fileName}`).remove();
+          updateContinueButton();
+      }
+
+      window.removeVisaFile = function(fileName) {
+          visaFiles = visaFiles.filter(f => f.name !== fileName);
+          document.getElementById(`visa-file-${fileName}`).remove();
+          updateContinueButton();
+      }
+
+      function handlePayuUpload(files) {
+        const fileList = document.getElementById('payu-file-list');
+        
+        files.forEach(file => {
+          if (payuFiles.some(f => f.name === file.name)) {
+            addBotMessage(`⚠️ El archivo "${file.name}" ya fue cargado.`);
+            return;
+          }
+
+          // Detectar si el archivo tiene formato mes-año
+          const formatoMesAnio = detectarFormatoMesAnio(file.name);
+          
+          // Guardar la información del formato en una propiedad del archivo
+          file.formatoMesAnio = formatoMesAnio.encontrado;
+          file.mesMesAnio = formatoMesAnio.mes;
+          file.anioMesAnio = formatoMesAnio.anio;
+          
+          console.log(`📄 Archivo PAYU cargado: ${file.name}`);
+          console.log(`   - Formato MMMAA: ${file.formatoMesAnio ? 'Sí' : 'No'}`);
+          if (file.formatoMesAnio) {
+              console.log(`   - Mes: ${file.mesMesAnio}, Año: ${file.anioMesAnio}`);
+          }
+
+          payuFiles.push(file);
+
+          const fileDiv = document.createElement('div');
+          fileDiv.id = `payu-file-${file.name}`;
+          fileDiv.className = 'p-1 bg-yellow-50 border border-yellow-200 rounded text-xs flex items-center justify-between';
+          fileDiv.innerHTML = `
+            <div class="flex items-center gap-2 flex-1 min-w-0">
+              <i class="fas fa-file-excel text-yellow-600 text-xs"></i>
+              <span class="font-medium text-yellow-900 truncate">${file.name}</span>
+              ${file.formatoMesAnio ? `<span class="text-xs text-orange-600 ml-1">(${file.mesMesAnio}${file.anioMesAnio})</span>` : ''}
+            </div>
+            <button class="p-1 text-red-500 hover:text-red-700" onclick="removePayuFile('${file.name}')">
+              <i class="fas fa-times text-xs"></i>
+            </button>`;
+          fileList.appendChild(fileDiv);
+        });
+
+        updateContinueButton();
+      }
+
+      window.removePayuFile = function(fileName) {
+          payuFiles = payuFiles.filter(f => f.name !== fileName);
+          document.getElementById(`payu-file-${fileName}`).remove();
+          updateContinueButton();
+      }
+      
+      // --- CORE LOGIC ---
+      async function processFile() {
+          const hasAnyFile = amexFiles.length > 0 || dinersFiles.length > 0 || mcFiles.length > 0 || visaFiles.length > 0 || payuFiles.length > 0;
+          if (!uploadedFile || !hasAnyFile) {
+              addBotMessage('❌ Faltan archivos para procesar. Asegúrate de haber cargado el extracto y al menos un archivo de conciliación.');
+              showStep(uploadedFile ? 3 : 2);
+              return;
+          }
+
+          try {
+              // 1. Definir los encabezados de ENTRADA (archivos originales)
+              const INPUT_EXTRACTO_HEADERS = ['FECHA', 'DESCRIPCIÓN OPERACIÓN', 'MONTO', 'OPERACIÓN - NÚMERO', 'REFERENCIA2'];
+              const INPUT_AMEX_HEADERS = ['CODIGO', 'NETO_TOTAL', 'FECHA_ABONO'];
+              const INPUT_DINERS_HEADERS = ['CÓDIGO DE COMERCIO', 'ORDEN DE PAGO', 'FECHA DE PAGO', 'IMPORTE NETO DE PAGO'];
+              const INPUT_MC_HEADERS = ['CODCOM', 'NETO_TOTAL', 'FECHA_ABONO'];
+              const INPUT_VISA_HEADERS = ['COMERCIO/CADENA', 'FECHA PROCESO', 'IMPORTE NETO'];
+              const INPUT_PAYU_HEADERS = ['FECHA', 'DOCUMENTO', 'DESCRIPCION', 'CREDITOS', 'DEBITOS', 'NUEVO SALDO', 'SALDO CONGELADO ANTERIOR', 'SALDO RESERVA', 'SALDO DISPONIBLE'];
+
+              // 2. Definir los encabezados de SALIDA (con columnas añadidas)
+              const FINAL_EXTRACTO_HEADERS = ['FECHA', 'DESCRIPCIÓN OPERACIÓN', 'MONTO', 'OPERACIÓN - NÚMERO', 'REFERENCIA2', 'ESTADO', '#REF'];
+              const FINAL_AMEX_HEADERS = ['CODIGO', 'NETO_TOTAL', 'FECHA_ABONO', 'ESTADO', '#REF'];
+              const FINAL_DINERS_HEADERS = ['CÓDIGO DE COMERCIO', 'ORDEN DE PAGO', 'FECHA DE PAGO', 'IMPORTE NETO DE PAGO', 'ESTADO', '#REF'];
+              const FINAL_MC_HEADERS = ['CODCOM', 'NETO_TOTAL', 'FECHA_ABONO', 'ESTADO', '#REF'];
+              const FINAL_VISA_HEADERS = ['COMERCIO/CADENA', 'FECHA PROCESO', 'IMPORTE NETO', 'ESTADO', '#REF'];
+              const FINAL_PAYU_HEADERS = ['FECHA', 'DOCUMENTO', 'DESCRIPCION', 'CREDITOS', 'DEBITOS', 'NUEVO SALDO', 'SALDO CONGELADO ANTERIOR', 'SALDO RESERVA', 'SALDO DISPONIBLE', 'ESTADO', '#REF'];
+
+              // 3. Leer el archivo de extracto. Requerimos las columnas de entrada.
+              const requiredExtractHeaders = [...new Set(['DESCRIPCIÓN OPERACIÓN', ...INPUT_EXTRACTO_HEADERS])];
+              const [rawExtractHeaders, ...rawExtractData] = await readFileAndGetData(uploadedFile, {
+                  headerRow: 5,
+                  requiredHeaders: requiredExtractHeaders
+              });
+              
+              // 3. Filtrar el extracto por 'Descripción operación'
+              const descColIndex = rawExtractHeaders.findIndex(h => h.toUpperCase().trim() === 'DESCRIPCIÓN OPERACIÓN');
+              const filteredRawExtractData = rawExtractData.filter(row => {
+                  const desc = row[descColIndex] ? String(row[descColIndex]).toUpperCase() : '';
+                  return desc.endsWith('DINERS CLUB') || 
+                         desc.endsWith('CIA DE SERV') || 
+                         desc.endsWith('DE PROCESOS DE MEDIOS') ||
+                         desc.endsWith('DINERS CLUB PERU S.') ||
+                         desc.endsWith('DE PAYU PERU S.A.C') ||
+                         desc.includes('COMPAN');
+              });
+
+              // 4. Mapear las columnas del extracto ya filtrado al formato de entrada
+              const extractoHeaderMap = INPUT_EXTRACTO_HEADERS.map(h => rawExtractHeaders.findIndex(rawH => rawH.toUpperCase().trim() === h));
+              const mappedExtractoData = filteredRawExtractData.map(row => extractoHeaderMap.map(index => row[index]));
+              
+              // 5. Agregar columnas ESTADO y #REF con valores iniciales
+              const extractoDataWithEstado = mappedExtractoData.map(row => [...row, 'Pendiente', '']);
+              
+              // 6. Consolidar y mapear archivos AMEX
+              let consolidatedAmexData = [];
+              let amexFilesInfo = []; // Almacenar información de los archivos para cada fila
+              if (amexFiles.length > 0) {
+                  for (const file of amexFiles) {
+                      // console.log(`📄 Procesando archivo AMEX: ${file.name}`);
+                      const [rawAmexHeaders, ...rawAmexData] = await readFileAndGetData(file, { requiredHeaders: INPUT_AMEX_HEADERS });
+                      const amexHeaderMap = INPUT_AMEX_HEADERS.map(h => rawAmexHeaders.findIndex(rawH => rawH.toUpperCase().trim() === h));
+                      const mappedAmex = rawAmexData.map(row => amexHeaderMap.map(index => row[index]));
+                      
+                      // Guardar la referencia al archivo para cada fila
+                      const startIndex = consolidatedAmexData.length;
+                      consolidatedAmexData.push(...mappedAmex);
+                      for (let i = 0; i < mappedAmex.length; i++) {
+                          amexFilesInfo[startIndex + i] = file;
+                      }
+                      
+                      // Log para verificar la información del archivo
+                      console.log(`📄 Archivo AMEX: ${file.name}`);
+                      console.log(`   - Formato MMMAA: ${file.formatoMesAnio ? 'Sí' : 'No'}`);
+                      if (file.formatoMesAnio) {
+                          console.log(`   - Mes: ${file.mesMesAnio}, Año: ${file.anioMesAnio}`);
+                      }
+                  }
+
+                  // 5.1. Filtrar AMEX por Neto_Total != 0
+                  const netoTotalIndex = INPUT_AMEX_HEADERS.indexOf('NETO_TOTAL');
+                  
+                  // Filtrar manteniendo la correspondencia entre datos y archivos
+                  const filteredIndexes = [];
+                  consolidatedAmexData.forEach((row, index) => {
+                      const netoTotal = convertToNumber(row[netoTotalIndex]);
+                      if (!isNaN(netoTotal) && netoTotal !== 0) {
+                          filteredIndexes.push(index);
+                      }
+                  });
+                  
+                  // Crear nuevos arrays filtrados manteniendo la correspondencia
+                  const newConsolidatedAmexData = [];
+                  const newAmexFilesInfo = [];
+                  
+                  filteredIndexes.forEach(index => {
+                      newConsolidatedAmexData.push(consolidatedAmexData[index]);
+                      newAmexFilesInfo.push(amexFilesInfo[index]);
+                  });
+                  
+                  consolidatedAmexData = newConsolidatedAmexData;
+                  amexFilesInfo = newAmexFilesInfo;
+                  
+                  console.log(`📊 AMEX: ${consolidatedAmexData.length} filas válidas después del filtro`);
+                  console.log(`📊 AMEX Files Info: ${amexFilesInfo.length} referencias a archivos después del filtro`);
+              }
+
+              // 6. Consolidar y mapear archivos DINERS
+              let consolidatedDinersData = [];
+              let dinersFilesInfo = []; // Array para mantener información de archivos
+              if (dinersFiles.length > 0) {
+                  for (const file of dinersFiles) {
+                      // console.log(`📄 Procesando archivo DINERS: ${file.name}`);
+                      const [rawDinersHeaders, ...rawDinersData] = await readFileAndGetData(file, { requiredHeaders: INPUT_DINERS_HEADERS });
+                      const dinersHeaderMap = INPUT_DINERS_HEADERS.map(h => rawDinersHeaders.findIndex(rawH => rawH.toUpperCase().trim() === h));
+                      
+                      // Filtrar filas que tienen datos en al menos una columna requerida
+                      const filteredDinersData = rawDinersData.filter(row => {
+                          return dinersHeaderMap.some(index => {
+                              const value = row[index];
+                              return value !== null && value !== undefined && String(value).trim() !== '';
+                          });
+                      });
+                      
+                      const mappedDiners = filteredDinersData.map(row => dinersHeaderMap.map(index => row[index]));
+                      consolidatedDinersData.push(...mappedDiners);
+                      
+                      // Agregar información del archivo para cada fila procesada
+                      for (let i = 0; i < mappedDiners.length; i++) {
+                          const fileInfo = {
+                              formatoMesAnio: file.formatoMesAnio,
+                              fileName: file.name,
+                              mes: file.mesMesAnio,
+                              anio: file.anioMesAnio
+                          };
+                          dinersFilesInfo.push(fileInfo);
+                          console.log(`[DINERS CONSTRUCCIÓN] Fila ${dinersFilesInfo.length - 1} -> Archivo: ${file.name}, FormatoMA: ${file.formatoMesAnio}`);
+                      }
+                  }
+                  // console.log(`📊 DINERS: ${consolidatedDinersData.length} filas válidas después del filtro`);
+              }
+
+              // 7. Consolidar y mapear archivos MASTERCARD
+              let consolidatedMcData = [];
+              let mcFilesInfo = []; // Array para mantener información de archivos
+              if (mcFiles.length > 0) {
+                  for (const file of mcFiles) {
+                      // console.log(`📄 Procesando archivo MC: ${file.name}`);
+                      const codcom = file.name.split('-')[0];
+                      const [rawMcHeaders, ...rawMcData] = await readFileAndGetData(file, { requiredHeaders: ['NETO_TOTAL', 'FECHA_ABONO'] });
+                      
+                      const netoTotalIndex = rawMcHeaders.findIndex(h => h.toUpperCase().trim() === 'NETO_TOTAL');
+                      const fechaAbonoIndex = rawMcHeaders.findIndex(h => h.toUpperCase().trim() === 'FECHA_ABONO');
+
+                      const mappedMc = rawMcData
+                          .map(row => [codcom, row[netoTotalIndex], row[fechaAbonoIndex]])
+                          .filter(row => {
+                              // Filtrar filas que no tienen datos o cuyo Neto_Total es 0
+                              const netoTotal = convertToNumber(row[1]);
+                              return !isNaN(netoTotal) && netoTotal !== 0;
+                          });
+
+                      consolidatedMcData.push(...mappedMc);
+                      
+                      // Agregar información del archivo para cada fila procesada
+                      for (let i = 0; i < mappedMc.length; i++) {
+                          const fileInfo = {
+                              formatoMesAnio: file.formatoMesAnio,
+                              fileName: file.name,
+                              mes: file.mesMesAnio,
+                              anio: file.anioMesAnio
+                          };
+                          mcFilesInfo.push(fileInfo);
+                          console.log(`[MC CONSTRUCCIÓN] Fila ${mcFilesInfo.length - 1} -> Archivo: ${file.name}, FormatoMA: ${file.formatoMesAnio}`);
+                      }
+                  }
+                  // console.log(`📊 MC: ${consolidatedMcData.length} filas válidas después del filtro`);
+              }
+
+              // 8. Consolidar y mapear archivos VISA
+              let consolidatedVisaData = [];
+              let visaFilesInfo = []; // Array para mantener información de archivos
+              if (visaFiles.length > 0) {
+                  for (const file of visaFiles) {
+                      // console.log(`📄 Procesando archivo VISA: ${file.name}`);
+                      const [rawVisaHeaders, ...rawVisaData] = await readFileAndGetData(file, { requiredHeaders: INPUT_VISA_HEADERS });
+                      
+                      const comercioIndex = rawVisaHeaders.findIndex(h => h.toUpperCase().trim() === 'COMERCIO/CADENA');
+                      const fechaProcesoIndex = rawVisaHeaders.findIndex(h => h.toUpperCase().trim() === 'FECHA PROCESO');
+                      const importeNetoIndex = rawVisaHeaders.findIndex(h => h.toUpperCase().trim() === 'IMPORTE NETO');
+
+                      const mappedVisa = rawVisaData
+                          .map(row => [row[comercioIndex], row[fechaProcesoIndex], row[importeNetoIndex]])
+                          .filter(row => {
+                              const importeNeto = convertToNumber(row[2]);
+                              return !isNaN(importeNeto) && importeNeto !== 0;
+                          });
+
+                      consolidatedVisaData.push(...mappedVisa);
+                      
+                      // Agregar información del archivo para cada fila procesada
+                      for (let i = 0; i < mappedVisa.length; i++) {
+                          const fileInfo = {
+                              formatoMesAnio: file.formatoMesAnio,
+                              fileName: file.name,
+                              mes: file.mesMesAnio,
+                              anio: file.anioMesAnio
+                          };
+                          visaFilesInfo.push(fileInfo);
+                          console.log(`[VISA CONSTRUCCIÓN] Fila ${visaFilesInfo.length - 1} -> Archivo: ${file.name}, FormatoMA: ${file.formatoMesAnio}`);
+                      }
+                  }
+                  // console.log(`📊 VISA: ${consolidatedVisaData.length} filas válidas después del filtro`);
+              }
+
+              // 8. Consolidar y mapear archivos PAYU
+              let consolidatedPayuData = [];
+              let payuFilesInfo = []; // Array para mantener información de archivos
+              if (payuFiles.length > 0) {
+                  for (const file of payuFiles) {
+                      // console.log(`📄 Procesando archivo PAYU: ${file.name}`);
+                      const [rawPayuHeaders, ...rawPayuData] = await readFileAndGetData(file, { 
+                          headerRow: 5,
+                          requiredHeaders: INPUT_PAYU_HEADERS
+                      });
+                      
+                      const payuHeaderMap = INPUT_PAYU_HEADERS.map(h => rawPayuHeaders.findIndex(rawH => rawH.toUpperCase().trim() === h));
+                      
+                      // Filtrar filas que contienen "PAYMENT_ORDER [PAYMENT_ORDER]" en DESCRIPCION
+                      const descripcionIndex = rawPayuHeaders.findIndex(h => h.toUpperCase().trim() === 'DESCRIPCION');
+                      const debitosIndex = rawPayuHeaders.findIndex(h => h.toUpperCase().trim() === 'DEBITOS');
+                      
+                      const filteredPayuData = rawPayuData.filter(row => {
+                          const descripcion = String(row[descripcionIndex] || '').toUpperCase();
+                          const debitos = row[debitosIndex];
+                          // Filtro exacto para PAYU: solo incluir PAYMENT_ORDER exactos
+                          return descripcion === 'PAYMENT_ORDER [PAYMENT_ORDER]' && 
+                                 debitos !== null && debitos !== undefined && debitos !== '' &&
+                                 convertToNumber(debitos) !== 0;
+                      });
+                      
+                      // Eliminar duplicados en PAYU basados en DOCUMENTO y DEBITOS
+                      const payuUniqueMap = new Map();
+                      const documentoIndex = rawPayuHeaders.findIndex(h => h.toUpperCase().trim() === 'DOCUMENTO');
+                      
+                      const uniqueFilteredPayuData = filteredPayuData.filter(row => {
+                          const documento = String(row[documentoIndex] || '');
+                          const debitos = convertToNumber(row[debitosIndex]);
+                          const key = `${documento}_${debitos.toFixed(2)}`;
+                          
+                          if (payuUniqueMap.has(key)) {
+                              return false; // Es un duplicado
+                          } else {
+                              payuUniqueMap.set(key, true);
+                              return true;
+                          }
+                      });
+                      
+                      const mappedPayu = uniqueFilteredPayuData.map(row => payuHeaderMap.map(index => row[index]));
+                      consolidatedPayuData.push(...mappedPayu);
+                      
+                      // Agregar información del archivo para cada fila procesada
+                      for (let i = 0; i < mappedPayu.length; i++) {
+                          const fileInfo = {
+                              formatoMesAnio: file.formatoMesAnio,
+                              fileName: file.name,
+                              mes: file.mesMesAnio,
+                              anio: file.anioMesAnio
+                          };
+                          payuFilesInfo.push(fileInfo);
+                          console.log(`[PAYU CONSTRUCCIÓN] Fila ${payuFilesInfo.length - 1} -> Archivo: ${file.name}, FormatoMA: ${file.formatoMesAnio}`);
+                      }
+                  }
+                  // console.log(`📊 PAYU: ${consolidatedPayuData.length} filas válidas después del filtro`);
+              }
+
+              // 9. Agregar columnas ESTADO y #REF a todos los datos consolidados
+              // Para archivos con formato MMMAA, usar 'Pendiente MA' como estado inicial
+              const amexDataWithEstado = consolidatedAmexData.map((row, index) => {
+                  const fileInfo = amexFilesInfo[index];
+                  const estado = fileInfo && fileInfo.formatoMesAnio ? 'Pendiente MA' : 'Pendiente';
+                  console.log(`[AMEX ${index}] FileInfo:`, fileInfo, `Estado: "${estado}"`);
+                  return [...row, estado, ''];
+              });
+              
+              const dinersDataWithEstado = consolidatedDinersData.map((row, index) => {
+                  const fileInfo = dinersFilesInfo[index];
+                  const estado = fileInfo && fileInfo.formatoMesAnio ? 'Pendiente MA' : 'Pendiente';
+                  console.log(`[DINERS ${index}] FileInfo:`, fileInfo, `Estado: "${estado}"`);
+                  return [...row, estado, ''];
+              });
+              
+              const mcDataWithEstado = consolidatedMcData.map((row, index) => {
+                  const fileInfo = mcFilesInfo[index];
+                  const estado = fileInfo && fileInfo.formatoMesAnio ? 'Pendiente MA' : 'Pendiente';
+                  console.log(`[MC ${index}] FileInfo:`, fileInfo, `Estado: "${estado}"`);
+                  return [...row, estado, ''];
+              });
+              
+              const visaDataWithEstado = consolidatedVisaData.map((row, index) => {
+                  const fileInfo = visaFilesInfo[index];
+                  const estado = fileInfo && fileInfo.formatoMesAnio ? 'Pendiente MA' : 'Pendiente';
+                  console.log(`[VISA ${index}] FileInfo:`, fileInfo, `Estado: "${estado}"`);
+                  return [...row, estado, ''];
+              });
+              
+              const payuDataWithEstado = consolidatedPayuData.map((row, index) => {
+                  const fileInfo = payuFilesInfo[index];
+                  const estado = fileInfo && fileInfo.formatoMesAnio ? 'Pendiente MA' : 'Pendiente';
+                  console.log(`[PAYU ${index}] FileInfo:`, fileInfo, `Estado: "${estado}"`);
+                  return [...row, estado, ''];
+              });
+
+              // 9.1. Resumen de estados asignados
+              console.log(`\n📊 RESUMEN DE ESTADOS ASIGNADOS:`);
+              console.log(`📊 AMEX: ${amexDataWithEstado.length} filas`);
+              console.log(`📊 DINERS: ${dinersDataWithEstado.length} filas`);
+              console.log(`📊 MC: ${mcDataWithEstado.length} filas`);
+              console.log(`📊 VISA: ${visaDataWithEstado.length} filas`);
+              console.log(`📊 PAYU: ${payuDataWithEstado.length} filas`);
+
+              // 10. Realizar la Conciliación por pasos
+              console.log('\\n🔍 VERIFICANDO ESTADOS ANTES DE CONCILIAR:');
+              
+              const estadosAmex = {}, estadosDiners = {}, estadosMC = {}, estadosVisa = {}, estadosPayu = {};
+              
+              amexDataWithEstado.forEach(row => {
+                  const estado = row[row.length - 2];
+                  estadosAmex[estado] = (estadosAmex[estado] || 0) + 1;
+              });
+              
+              dinersDataWithEstado.forEach(row => {
+                  const estado = row[row.length - 2];
+                  estadosDiners[estado] = (estadosDiners[estado] || 0) + 1;
+              });
+              
+              mcDataWithEstado.forEach(row => {
+                  const estado = row[row.length - 2];
+                  estadosMC[estado] = (estadosMC[estado] || 0) + 1;
+              });
+              
+              visaDataWithEstado.forEach(row => {
+                  const estado = row[row.length - 2];
+                  estadosVisa[estado] = (estadosVisa[estado] || 0) + 1;
+              });
+              
+              payuDataWithEstado.forEach(row => {
+                  const estado = row[row.length - 2];
+                  estadosPayu[estado] = (estadosPayu[estado] || 0) + 1;
+              });
+              
+              console.log('📊 AMEX Estados:', estadosAmex);
+              console.log('📊 DINERS Estados:', estadosDiners);
+              console.log('📊 MC Estados:', estadosMC);
+              console.log('📊 VISA Estados:', estadosVisa);
+              console.log('📊 PAYU Estados:', estadosPayu);
+              
+              const { conciliadoExtracto, conciliadoAmex, conciliadoDiners, conciliadoMc, conciliadoVisa, conciliadoPayu } = performReconciliationMultiStep(
+                  [FINAL_EXTRACTO_HEADERS, ...extractoDataWithEstado],
+                  [FINAL_AMEX_HEADERS, ...amexDataWithEstado],
+                  [FINAL_DINERS_HEADERS, ...dinersDataWithEstado],
+                  [FINAL_MC_HEADERS, ...mcDataWithEstado],
+                  [FINAL_VISA_HEADERS, ...visaDataWithEstado],
+                  [FINAL_PAYU_HEADERS, ...payuDataWithEstado],
+                  amexFilesInfo,
+                  dinersFilesInfo,
+                  mcFilesInfo,
+                  visaFilesInfo,
+                  payuFilesInfo
+              );
+
+              // 11. Formatear fechas en salidas
+              // AMEX - Formatear FECHA_ABONO
+              if (conciliadoAmex.length > 0) {
+                  const fechaAbonoIndexAmex = conciliadoAmex[0].indexOf('FECHA_ABONO');
+                  if (fechaAbonoIndexAmex !== -1) {
+                      for (let i = 1; i < conciliadoAmex.length; i++) {
+                          const rawValue = conciliadoAmex[i][fechaAbonoIndexAmex];
+                          const strValue = String(rawValue).trim();
+                          if (strValue.length === 8 && !isNaN(strValue)) {
+                              const year = strValue.substring(0, 4);
+                              const month = strValue.substring(4, 6);
+                              const day = strValue.substring(6, 8);
+                              conciliadoAmex[i][fechaAbonoIndexAmex] = `${day}/${month}/${year}`;
+                          }
+                      }
+                  }
+              }
+
+              // DINERS - Formatear FECHA DE PAGO
+              if (conciliadoDiners.length > 0) {
+                  const fechaPagoIndexDiners = conciliadoDiners[0].indexOf('FECHA DE PAGO');
+                  if (fechaPagoIndexDiners !== -1) {
+                      for (let i = 1; i < conciliadoDiners.length; i++) {
+                          const rawValue = conciliadoDiners[i][fechaPagoIndexDiners];
+                          const date = parseDate(rawValue);
+                          conciliadoDiners[i][fechaPagoIndexDiners] = date ? date.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }) : rawValue;
+                      }
+                  }
+              }
+
+              // MC - Formatear FECHA_ABONO
+              if (conciliadoMc.length > 0) {
+                  const fechaAbonoIndexMc = conciliadoMc[0].indexOf('FECHA_ABONO');
+                  if (fechaAbonoIndexMc !== -1) {
+                      for (let i = 1; i < conciliadoMc.length; i++) {
+                          const rawValue = conciliadoMc[i][fechaAbonoIndexMc];
+                          const date = parseDate(rawValue);
+                          conciliadoMc[i][fechaAbonoIndexMc] = date ? date.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }) : rawValue;
+                      }
+                  }
+              }
+
+              // VISA - Formatear FECHA PROCESO
+              if (conciliadoVisa.length > 0) {
+                  const fechaProcesoIndexVisa = conciliadoVisa[0].indexOf('FECHA PROCESO');
+                  if (fechaProcesoIndexVisa !== -1) {
+                      for (let i = 1; i < conciliadoVisa.length; i++) {
+                          const rawValue = conciliadoVisa[i][fechaProcesoIndexVisa];
+                          const date = parseDate(rawValue);
+                          conciliadoVisa[i][fechaProcesoIndexVisa] = date ? date.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }) : `FECHA INVALIDA (${rawValue})`;
+                      }
+                  }
+              }
+
+              // PAYU - Formatear FECHA
+              if (conciliadoPayu.length > 0) {
+                  const fechaIndexPayu = conciliadoPayu[0].indexOf('FECHA');
+                  if (fechaIndexPayu !== -1) {
+                      for (let i = 1; i < conciliadoPayu.length; i++) {
+                          const rawValue = conciliadoPayu[i][fechaIndexPayu];
+                          const date = parseDate(rawValue);
+                          conciliadoPayu[i][fechaIndexPayu] = date ? date.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }) : rawValue;
+                      }
+                  }
+              }
+
+              processedData = { 
+                  extracto: conciliadoExtracto, 
+                  amex: conciliadoAmex.length > 0 ? conciliadoAmex : [],
+                  diners: conciliadoDiners.length > 0 ? conciliadoDiners : [],
+                  mc: conciliadoMc.length > 0 ? conciliadoMc : [],
+                  visa: conciliadoVisa.length > 0 ? conciliadoVisa : [],
+                  payu: conciliadoPayu.length > 0 ? conciliadoPayu : []
+              };
+              goToStep5();
+
+          } catch (error) {
+              console.error('Error en el proceso de conciliación:', error);
+              addBotMessage(`❌ Error en la conciliación: ${error.message}`);
+              showStep(3); // Volver al paso de carga de AMEX si algo falla
+          }
+      }
+
+      function performReconciliationMultiStep(extractoConHeaders, amexConHeaders, dinersConHeaders, mcConHeaders, visaConHeaders, payuConHeaders, amexFilesInfo = [], dinersFilesInfo = [], mcFilesInfo = [], visaFilesInfo = [], payuFilesInfo = []) {
+          console.log('🔄 INICIANDO CONCILIACIÓN POR PASOS');
+          console.log('Extracto datos:', extractoConHeaders.length);
+          console.log('AMEX datos:', amexConHeaders.length);
+          console.log('Diners datos:', dinersConHeaders.length);
+          console.log('MC datos:', mcConHeaders.length);
+          console.log('Visa datos:', visaConHeaders.length);
+          console.log('Payu datos:', payuConHeaders.length);
+          
+          const [extractoHeaders, ...extractoData] = extractoConHeaders;
+          const [amexHeaders, ...amexData] = amexConHeaders.length > 0 ? amexConHeaders : [[], []];
+          const [dinersHeaders, ...dinersData] = dinersConHeaders.length > 0 ? dinersConHeaders : [[], []];
+          const [mcHeaders, ...mcData] = mcConHeaders.length > 0 ? mcConHeaders : [[], []];
+          const [visaHeaders, ...visaData] = visaConHeaders.length > 0 ? visaConHeaders : [[], []];
+          const [payuHeaders, ...payuData] = payuConHeaders.length > 0 ? payuConHeaders : [[], []];
+          
+          console.log('Extracto filas de datos:', extractoData.length);
+          console.log('AMEX filas de datos:', amexData.length);
+          console.log('Diners filas de datos:', dinersData.length);
+          console.log('MC filas de datos:', mcData.length);
+          console.log('Visa filas de datos:', visaData.length);
+          console.log('Payu filas de datos:', payuData.length);
+
+          // Índices de columnas clave
+          const fechaExtractoIndex = extractoHeaders.indexOf('FECHA');
+          const montoExtractoIndex = extractoHeaders.indexOf('MONTO');
+          const opNumExtractoIndex = extractoHeaders.indexOf('OPERACIÓN - NÚMERO');
+          const descExtractoIndex = extractoHeaders.indexOf('DESCRIPCIÓN OPERACIÓN');
+          const ref2ExtractoIndex = extractoHeaders.indexOf('REFERENCIA2');
+          
+          // Usar headers y datos ya incluidos con ESTADO y #REF
+          const finalExtractoHeaders = extractoHeaders;
+          let dataExtractoConEstado = extractoData; // Ya incluye ESTADO y #REF
+
+          // Preparar AMEX si hay datos
+          let finalAmexHeaders = [];
+          let dataAmexConEstado = [];
+          let amexMap = new Map();
+          
+          if (amexData.length > 0) {
+              const codAmexIndex = amexHeaders.indexOf('CODIGO');
+              const netoAmexIndex = amexHeaders.indexOf('NETO_TOTAL');
+              const fechaAbonoAmexIndex = amexHeaders.indexOf('FECHA_ABONO');
+              
+              finalAmexHeaders = amexHeaders;
+              dataAmexConEstado = amexData; // Ya incluye ESTADO y #REF
+
+              console.log('📊 PASO 2: Procesando AMEX para conciliación');
+              dataAmexConEstado.forEach((row, index) => {
+                  const fechaRaw = row[fechaAbonoAmexIndex];
+                  const montoRaw = row[netoAmexIndex];
+                  
+                  let fechaKey = null;
+                  if (fechaRaw && String(fechaRaw).length === 8) {
+                      const str = String(fechaRaw);
+                      const year = str.substring(0, 4);
+                      const month = str.substring(4, 6);
+                      const day = str.substring(6, 8);
+                      fechaKey = `${year}-${month}-${day}`;
+                  }
+                  
+                  const monto = convertToNumber(montoRaw);
+                  
+                  if (fechaKey && !isNaN(monto)) {
+                      const key = `${fechaKey}_${monto.toFixed(2)}`;
+                      console.log(`[AMEX ${index}] Key: "${key}" | Código: ${row[codAmexIndex]}`);
+                      
+                      // Obtener la referencia al archivo correspondiente a esta fila
+                      const file = amexFilesInfo[index]; // Usar índice directo
+                      
+                      // Log para verificar la información del archivo
+                      if (file) {
+                          console.log(`[AMEX ${index}] Archivo: ${file.name}, Formato MMMAA: ${file.formatoMesAnio ? 'Sí' : 'No'}`);
+                      } else {
+                          console.log(`[AMEX ${index}] ⚠️ No se encontró información del archivo para esta fila`);
+                      }
+                      
+                      if (!amexMap.has(key)) amexMap.set(key, []);
+                      amexMap.get(key).push({ row, index, file });
+                  }
+              });
+              console.log('AMEX Map size:', amexMap.size);
+          }
+
+          // Preparar DINERS si hay datos
+          let finalDinersHeaders = [];
+          let datadinersConEstado = [];
+          let dinersMap = new Map();
+          
+          if (dinersData.length > 0) {
+              const codComDinersIndex = dinersHeaders.indexOf('CÓDIGO DE COMERCIO');
+              const ordenPagoDinersIndex = dinersHeaders.indexOf('ORDEN DE PAGO');
+              const fechaPagoDinersIndex = dinersHeaders.indexOf('FECHA DE PAGO');
+              const importeNetoDinersIndex = dinersHeaders.indexOf('IMPORTE NETO DE PAGO');
+              
+              finalDinersHeaders = dinersHeaders;
+              datadinersConEstado = dinersData; // Ya incluye ESTADO y #REF
+
+              // console.log('\n🎯 PASO 3: Procesando DINERS para conciliación');
+              
+              // NUEVO PROCESAMIENTO DINERS: Agrupar por orden de pago, luego por fecha de pago
+              const dinersGroupsByOrder = new Map(); // Primer nivel: agrupar por orden de pago
+              
+              datadinersConEstado.forEach((row, index) => {
+                  const ordenPago = String(row[ordenPagoDinersIndex] || '').trim();
+                  const fechaPago = row[fechaPagoDinersIndex];
+                  const importeNeto = row[importeNetoDinersIndex];
+                  
+                  // Solo procesar si tiene orden de pago válida, fecha y importe
+                  if (ordenPago && fechaPago && importeNeto !== null && importeNeto !== undefined) {
+                      const last10 = ordenPago.slice(-10);
+                      
+                      if (last10.length === 10) {
+                          if (!dinersGroupsByOrder.has(last10)) {
+                              dinersGroupsByOrder.set(last10, new Map()); // Segundo nivel: Map por fecha
+                          }
+                          
+                          // Convertir fecha a formato comparable
+                          let fechaKey = null;
+                          if (fechaPago) {
+                              if (typeof fechaPago === 'number' && fechaPago > 40000) {
+                                  // Fecha de Excel (número de días desde 1900)
+                                  const excelDate = new Date((fechaPago - 25569) * 86400 * 1000);
+                                  fechaKey = excelDate.toISOString().split('T')[0]; // YYYY-MM-DD
+                              } else if (typeof fechaPago === 'string') {
+                                  // Manejar formato DD-MM-YYYY o DD/MM/YYYY de DINERS
+                                  const fechaStr = fechaPago.trim();
+                                  let parsedDate = null;
+                                  
+                                  // Intentar formato DD-MM-YYYY o DD/MM/YYYY
+                                  if (fechaStr.match(/^\d{1,2}[-\/]\d{1,2}[-\/]\d{4}$/)) {
+                                      const parts = fechaStr.split(/[-\/]/);
+                                      if (parts.length === 3) {
+                                          const day = parseInt(parts[0], 10);
+                                          const month = parseInt(parts[1], 10) - 1; // Mes base 0
+                                          const year = parseInt(parts[2], 10);
+                                          parsedDate = new Date(year, month, day);
+                                      }
+                                  } else {
+                                      // Intentar parseo estándar
+                                      parsedDate = new Date(fechaPago);
+                                  }
+                                  
+                                  if (parsedDate && !isNaN(parsedDate.getTime())) {
+                                      fechaKey = parsedDate.toISOString().split('T')[0];
+                                  }
+                              }
+                          }
+                          
+                          if (fechaKey) {
+                              const orderGroup = dinersGroupsByOrder.get(last10);
+                              if (!orderGroup.has(fechaKey)) {
+                                  orderGroup.set(fechaKey, []);
+                              }
+                              orderGroup.get(fechaKey).push({ row, index, fechaKey });
+                              // console.log(`[DINERS ${index}] Orden: ${last10} | Fecha Original: ${fechaPago} | Fecha Parseada: ${fechaKey} | Importe: ${importeNeto}`);
+                          }
+                      }
+                  }
+              });
+
+              // Crear mapa final: combinar orden + fecha como clave, con total del grupo
+              dinersGroupsByOrder.forEach((fechaGroups, ordenPago) => {
+                  fechaGroups.forEach((items, fechaPago) => {
+                      const total = items.reduce((sum, item) => {
+                          const importe = convertToNumber(item.row[importeNetoDinersIndex]);
+                          return sum + (isNaN(importe) ? 0 : importe);
+                      }, 0);
+                      
+                      // Obtener información del archivo del primer item del grupo
+                      // items[0].index es el índice en datadinersConEstado, que corresponde al índice en dinersFilesInfo
+                      const firstItemDataIndex = items[0].index;
+                      const fileInfo = dinersFilesInfo[firstItemDataIndex] || { formatoMesAnio: false };
+                      
+                      // Clave compuesta: orden_fecha para identificación única
+                      const compositeKey = `${ordenPago}_${fechaPago}`;
+                      dinersMap.set(compositeKey, { 
+                          total: total.toFixed(2), 
+                          items: items,
+                          ordenPago: ordenPago,
+                          fechaPago: fechaPago,
+                          formatoMesAnio: fileInfo.formatoMesAnio
+                      });
+                      // console.log(`[DINERS GRUPO] ${compositeKey} -> Total: ${total.toFixed(2)} (${items.length} items)`);
+                  });
+              });
+          }
+
+          // Preparar MC si hay datos - LÍNEA POR LÍNEA (sin agrupar por fecha)
+          let finalMcHeaders = [];
+          let datamcConEstado = [];
+          let mcCommerceMap = new Map(); // Mapa simple por comercio: CODCOM -> [registros individuales]
+          
+          if (mcData.length > 0) {
+              finalMcHeaders = mcHeaders;
+              datamcConEstado = mcData; // Ya incluye ESTADO y #REF
+              const codComMcIndex = mcHeaders.indexOf('CODCOM');
+              const netoMcIndex = mcHeaders.indexOf('NETO_TOTAL');
+
+              // Crear mapa simple línea por línea: CODCOM -> registros individuales
+              datamcConEstado.forEach((row, index) => {
+                  const codcom = String(row[codComMcIndex] || '').trim();
+                  const monto = convertToNumber(row[netoMcIndex]);
+
+                  if (codcom && !isNaN(monto) && monto !== 0) {
+                      if (!mcCommerceMap.has(codcom)) {
+                          mcCommerceMap.set(codcom, []);
+                      }
+                      
+                      // Obtener información del archivo
+                      const fileInfo = mcFilesInfo[index] || { formatoMesAnio: false };
+                      
+                      mcCommerceMap.get(codcom).push({
+                          row,
+                          index,
+                          monto: parseFloat(monto.toFixed(2)),
+                          formatoMesAnio: fileInfo.formatoMesAnio
+                      });
+                  }
+              });
+              // console.log(`[MC] Mapa de comercios creado con ${mcCommerceMap.size} comercios (línea por línea).`);
+          }
+
+          // Preparar VISA si hay datos - AGRUPAR POR FECHA PROCESO Y TOTALIZAR POR COMERCIO
+          let finalVisaHeaders = [];
+          let datavisaConEstado = [];
+          let visaCommerceMap = new Map(); // Mapa: COMERCIO/CADENA -> { total, fechaProceso, items }
+          
+          if (visaData.length > 0) {
+              finalVisaHeaders = visaHeaders;
+              datavisaConEstado = visaData; // Ya incluye ESTADO y #REF
+              const comercioVisaIndex = visaHeaders.indexOf('COMERCIO/CADENA');
+              const fechaProcesoVisaIndex = visaHeaders.indexOf('FECHA PROCESO');
+              const importeNetoVisaIndex = visaHeaders.indexOf('IMPORTE NETO');
+
+              // 1. Agrupar por FECHA PROCESO
+              let visaFechaGroups = new Map();
+              datavisaConEstado.forEach((row, index) => {
+                  const comercio = String(row[comercioVisaIndex] || '').trim();
+                  const fecha = parseDate(row[fechaProcesoVisaIndex]);
+                  const monto = convertToNumber(row[importeNetoVisaIndex]);
+
+                  if (comercio && fecha && !isNaN(monto)) {
+                      const fechaKey = createDateKey(row[fechaProcesoVisaIndex]);
+                      
+                      if (!visaFechaGroups.has(fechaKey)) visaFechaGroups.set(fechaKey, new Map());
+                      const fechaGroup = visaFechaGroups.get(fechaKey);
+                      
+                      if (!fechaGroup.has(comercio)) fechaGroup.set(comercio, { total: 0, items: [] });
+                      const comercioGroup = fechaGroup.get(comercio);
+                      comercioGroup.total += monto;
+                      comercioGroup.items.push({ row, index });
+                  }
+              });
+
+              // 2. Crear mapa final: COMERCIO -> { total, fechaProceso, items }
+              visaFechaGroups.forEach((fechaGroup, fechaKey) => {
+                  fechaGroup.forEach((comercioGroup, comercio) => {
+                      if (!visaCommerceMap.has(comercio)) {
+                          visaCommerceMap.set(comercio, []);
+                      }
+                      
+                      // Obtener información del archivo del primer item del grupo
+                      // comercioGroup.items[0].index es el índice en datavisaConEstado, que corresponde al índice en visaFilesInfo
+                      const firstItemDataIndex = comercioGroup.items[0].index;
+                      const fileInfo = visaFilesInfo[firstItemDataIndex] || { formatoMesAnio: false };
+                      
+                      visaCommerceMap.get(comercio).push({
+                          fechaProceso: fechaKey,
+                          total: parseFloat(comercioGroup.total.toFixed(2)),
+                          items: comercioGroup.items,
+                          formatoMesAnio: fileInfo.formatoMesAnio
+                  });
+              });
+              });
+              
+              // console.log(`[VISA] Mapa de comercios creado con ${visaCommerceMap.size} comercios (agrupado por fecha y totalizado).`);
+          }
+
+          // Preparar PAYU si hay datos
+          let finalPayuHeaders = [];
+          let datapayuConEstado = [];
+          let payuMap = new Map();
+          
+          if (payuData.length > 0) {
+              const fechaPayuIndex = payuHeaders.indexOf('FECHA');
+              const debitosPayuIndex = payuHeaders.indexOf('DEBITOS');
+              
+              finalPayuHeaders = payuHeaders;
+              datapayuConEstado = payuData; // Ya incluye ESTADO y #REF
+
+              // console.log('\n💰 PASO 6: Procesando PAYU para conciliación');
+              datapayuConEstado.forEach((row, index) => {
+                  const debitosRaw = row[debitosPayuIndex];
+                  const debitos = Math.abs(convertToNumber(debitosRaw)); // Valor absoluto de débitos
+                  
+                  if (!isNaN(debitos)) {
+                      const key = `${debitos.toFixed(2)}`;
+                      // console.log(`[PAYU ${index}] Key: "${key}" | Débitos: ${debitos}`);
+                      
+                      // Obtener información del archivo
+                      const fileInfo = payuFilesInfo[index] || { formatoMesAnio: false };
+                      
+                      if (!payuMap.has(key)) payuMap.set(key, []);
+                      payuMap.get(key).push({ 
+                          row, 
+                          index, 
+                          formatoMesAnio: fileInfo.formatoMesAnio 
+                      });
+                  }
+              });
+          }
+
+          // PASO 2: Conciliación AMEX
+          let conciliadosAmexF2 = 0; // Fase 2: fecha + monto
+          let conciliadosAmexF3 = 0; // Fase 3: solo monto
+          let conciliadosAmex = 0;   // Total AMEX
+          if (amexMap.size > 0) {
+              console.log('🔄 PASO 2: Conciliando con AMEX');
+              dataExtractoConEstado.forEach((row, index) => {
+                  if (!row[row.length - 2].startsWith('Pendiente')) return; // Ya conciliado
+
+                  const fechaRaw = row[fechaExtractoIndex];
+                  const montoRaw = row[montoExtractoIndex];
+                  
+                  const fecha = parseDate(fechaRaw);
+                  let fechaKey = null;
+                  if (fecha) {
+                      const year = fecha.getUTCFullYear();
+                      const month = String(fecha.getUTCMonth() + 1).padStart(2, '0');
+                      const day = String(fecha.getUTCDate()).padStart(2, '0');
+                      fechaKey = `${year}-${month}-${day}`;
+                  }
+                  
+                  const monto = convertToNumber(montoRaw);
+                  
+                  if (fechaKey && !isNaN(monto)) {
+                      const key = `${fechaKey}_${monto.toFixed(2)}`;
+                      console.log(`[EXTRACTO ${index}] Buscando key: "${key}"`);
+                      
+                      if (amexMap.has(key)) {
+                          const matches = amexMap.get(key);
+                          if (matches.length > 0) {
+                              const matchData = matches.shift();
+                              const matchRow = matchData.row;
+                              
+                              const codCom = matchRow[amexHeaders.indexOf('CODIGO')];
+                              const opNum = row[opNumExtractoIndex];
+                              const fechaStr = fecha.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                              
+                              // Verificar si el registro tiene estado 'Pendiente MA' para asignar etiqueta 'MA-'
+                              const esArchivoMA = matchRow[matchRow.length - 2] === 'Pendiente MA';
+                              const etiqueta = esArchivoMA ? 'MA-' : '';
+                              console.log('Etiqueta aplicada:', etiqueta, 'Estado original:', matchRow[matchRow.length - 2]);
+                              
+                              // Marcar como conciliado
+                              row[row.length - 2] = `${etiqueta}P2-F2-Conciliado`;
+                              row[row.length - 1] = `${etiqueta}${codCom} - ${fechaStr}`;
+                              matchRow[matchRow.length - 2] = `${etiqueta}P2-F2-Conciliado`;
+                              matchRow[matchRow.length - 1] = `${etiqueta}${opNum} - ${fechaStr}`;
+                              
+                              conciliadosAmexF2++;
+                              conciliadosAmex++;
+                              console.log(`[EXTRACTO ${index}] ✅ P2-F2-Conciliado con AMEX código ${codCom}`);
+                              
+                              if (matches.length === 0) amexMap.delete(key);
+                          }
+                      }
+                  }
+              });
+              console.log('Conciliados AMEX F2:', conciliadosAmexF2);
+
+              // PASO 2 - FASE 3: Conciliación AMEX solo por monto (fechas diferentes)
+              // console.log('\n🔄 PASO 2 - FASE 3: Conciliando AMEX (solo monto, fechas diferentes)');
+
+              // Crear mapa solo por monto para registros no conciliados en FASE 2
+              const amexMontoMap = new Map();
+
+              // Obtener índices de columnas para FASE 3
+              const netoAmexIndexF3 = amexHeaders.indexOf('NETO_TOTAL');
+              const codAmexIndexF3 = amexHeaders.indexOf('CODIGO');
+
+              // Procesar solo registros AMEX no conciliados en FASE 2
+              dataAmexConEstado.forEach((row, index) => {
+                  if (row[row.length - 2].startsWith('Pendiente')) { // Solo procesar pendientes de FASE 2
+                      const montoRaw = row[netoAmexIndexF3];
+                      const monto = convertToNumber(montoRaw);
+
+                      if (!isNaN(monto)) {
+                          const montoKey = monto.toFixed(2);
+                          // console.log(`[AMEX F3 ${index}] Monto: "${montoKey}" | Código: ${row[codAmexIndexF3]}`);
+
+                          // Obtener la referencia al archivo correspondiente a esta fila
+                          const file = amexFilesInfo[index]; // Usar índice directo
+                          
+                          // Log para verificar la información del archivo en Fase 3
+                          if (file) {
+                              console.log(`[AMEX F3 ${index}] Archivo: ${file.name}, Formato MMMAA: ${file.formatoMesAnio ? 'Sí' : 'No'}`);
+                          } else {
+                              console.log(`[AMEX F3 ${index}] ⚠️ No se encontró información del archivo para esta fila`);
+                          }
+                          
+                          if (!amexMontoMap.has(montoKey)) amexMontoMap.set(montoKey, []);
+                          amexMontoMap.get(montoKey).push({ row, index, file });
+                      }
+                  }
+              });
+
+              // Conciliar por monto con registros pendientes del extracto
+              dataExtractoConEstado.forEach((row, index) => {
+                  if (!row[row.length - 2].startsWith('Pendiente')) return; // Solo procesar pendientes de FASE 2
+
+                  const montoRaw = row[montoExtractoIndex];
+                  const monto = convertToNumber(montoRaw);
+
+                  if (!isNaN(monto)) {
+                      const montoKey = monto.toFixed(2);
+
+                      if (amexMontoMap.has(montoKey)) {
+                          const matches = amexMontoMap.get(montoKey);
+                          if (matches.length > 0) {
+                              const matchData = matches.shift();
+                              const matchRow = matchData.row;
+
+                              const codCom = matchRow[amexHeaders.indexOf('CODIGO')];
+                              const opNum = row[opNumExtractoIndex];
+                              const fechaExtractoStr = parseDate(row[fechaExtractoIndex]);
+                              const fechaExtractoFormatted = fechaExtractoStr ?
+                                  fechaExtractoStr.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }) :
+                                  'Fecha inválida';
+
+                              // Verificar si el registro tiene estado 'Pendiente MA' para asignar etiqueta 'MA-'
+                              const esArchivoMA = matchRow[matchRow.length - 2] === 'Pendiente MA';
+                              const etiqueta = esArchivoMA ? 'MA-' : '';
+                              console.log('Etiqueta F3 aplicada:', etiqueta, 'Estado original:', matchRow[matchRow.length - 2]);
+                              
+                              // Marcar como conciliado
+                              row[row.length - 2] = `${etiqueta}P2-F3-Conciliado`;
+                              row[row.length - 1] = `${etiqueta}${codCom} - Monto: ${montoKey} (fechas diferentes)`;
+                              matchRow[matchRow.length - 2] = `${etiqueta}P2-F3-Conciliado`;
+                              matchRow[matchRow.length - 1] = `${etiqueta}${opNum} - Monto: ${montoKey} (fechas diferentes)`;
+
+                              conciliadosAmexF3++;
+                              conciliadosAmex++;
+                              // console.log(`[EXTRACTO ${index}] ✅ P2-F3-Conciliado con AMEX código ${codCom} (fechas diferentes)`);
+
+                              // Eliminar el monto del mapa cuando ya no quedan matches disponibles
+                              // Esto previene que el mismo registro AMEX se use múltiples veces
+                              if (matches.length === 0) {
+                                  // console.log(`[AMEX F3] Eliminando monto "${montoKey}" del mapa (sin matches restantes)`);
+                                  amexMontoMap.delete(montoKey);
+                              }
+                          }
+                      }
+                  }
+              });
+
+              // Log resumen de la fase 3
+              // console.log(`[F3 RESUMEN] ${conciliadosAmexF3} conciliaciones realizadas en fase 3`);
+          }
+
+          // PASO 3: Conciliación DINERS (NUEVA LÓGICA: por fecha y monto)
+          let conciliadosDiners = 0;
+          let conciliadosDinersFase1 = 0;
+          let conciliadosDinersFase2 = 0;
+          
+          if (dinersMap.size > 0) {
+              // FASE 1: Conciliación por fecha y monto exacto
+              // console.log('\n🎯 PASO 3 - FASE 1: Conciliando con DINERS por fecha y monto');
+              dataExtractoConEstado.forEach((row, index) => {
+                  if (!row[row.length - 2].startsWith('Pendiente')) return; // Ya conciliado
+
+                  const fechaExtracto = row[fechaExtractoIndex];
+                  const montoRaw = row[montoExtractoIndex];
+                  const monto = convertToNumber(montoRaw);
+                  
+                  if (fechaExtracto && !isNaN(monto)) {
+                      // Convertir fecha del extracto a formato comparable
+                      let fechaExtractoKey = null;
+                      if (typeof fechaExtracto === 'number' && fechaExtracto > 40000) {
+                          // Fecha de Excel
+                          const excelDate = new Date((fechaExtracto - 25569) * 86400 * 1000);
+                          fechaExtractoKey = excelDate.toISOString().split('T')[0];
+                      } else if (typeof fechaExtracto === 'string') {
+                          // Manejar formato DD/MM/YYYY del extracto
+                          const fechaStr = fechaExtracto.trim();
+                          let parsedDate = null;
+                          
+                          // Intentar formato DD/MM/YYYY o DD-MM-YYYY
+                          if (fechaStr.match(/^\d{1,2}[-\/]\d{1,2}[-\/]\d{4}$/)) {
+                              const parts = fechaStr.split(/[-\/]/);
+                              if (parts.length === 3) {
+                                  const day = parseInt(parts[0], 10);
+                                  const month = parseInt(parts[1], 10) - 1; // Mes base 0
+                                  const year = parseInt(parts[2], 10);
+                                  parsedDate = new Date(year, month, day);
+                              }
+                          } else {
+                              // Intentar parseo estándar
+                              parsedDate = new Date(fechaExtracto);
+                          }
+                          
+                          if (parsedDate && !isNaN(parsedDate.getTime())) {
+                              fechaExtractoKey = parsedDate.toISOString().split('T')[0];
+                          }
+                      }
+                      
+                      if (fechaExtractoKey) {
+                          // Buscar coincidencia por fecha y monto en los grupos DINERS
+                          // console.log(`[EXTRACTO ${index}] Fecha Original: ${fechaExtracto} | Fecha Parseada: ${fechaExtractoKey} | Monto: ${monto}`);
+                          for (const [compositeKey, dinersGroup] of dinersMap.entries()) {
+                              const dinersTotal = parseFloat(dinersGroup.total);
+                              const dinersFecha = dinersGroup.fechaPago;
+                              
+                              // console.log(`[COMPARANDO] Extracto: ${fechaExtractoKey} vs DINERS: ${dinersFecha} | Monto Extracto: ${monto} vs DINERS: ${dinersTotal}`);
+                              
+                              // Comparar fecha y monto
+                              if (dinersFecha === fechaExtractoKey && Math.abs(monto - dinersTotal) < 0.01) {
+                                  const opNum = row[opNumExtractoIndex];
+                                  const ordenPago = dinersGroup.ordenPago;
+                                  
+                                  // Verificar si algún registro del grupo tiene estado 'Pendiente MA'
+                                  const esArchivoMA = dinersGroup.items.some(item => item.row[item.row.length - 2] === 'Pendiente MA');
+                                  const etiqueta = esArchivoMA ? 'MA-' : '';
+                                  
+                                  // Marcar extracto como conciliado
+                                  row[row.length - 2] = `${etiqueta}P3-F1 - CONCILIADO`;
+                                  row[row.length - 1] = `${etiqueta}${ordenPago} - ${dinersFecha}`;
+                                  
+                                  // Marcar todos los items DINERS del grupo como conciliados
+                                  dinersGroup.items.forEach(item => {
+                                      item.row[item.row.length - 2] = `${etiqueta}P3-F1 - CONCILIADO`;
+                                      item.row[item.row.length - 1] = `${etiqueta}${opNum} - ${ordenPago} - ${dinersFecha}`;
+                                  });
+                                  
+                                  conciliadosDinersFase1++;
+                                  conciliadosDiners++;
+                                  // console.log(`[EXTRACTO ${index}] ✅ P3-F1 - CONCILIADO con DINERS | Fecha: ${dinersFecha} | Monto: ${dinersTotal} | Orden: ${ordenPago}`);
+                                  
+                                  // Remover del mapa para evitar re-matches
+                                  dinersMap.delete(compositeKey);
+                                  break; // Salir del loop una vez encontrada la coincidencia
+                              }
+                          }
+                      }
+                  }
+              });
+              
+              // FASE 2: Conciliación solo por monto restando 2.07
+              // console.log('\n🎯 PASO 3 - FASE 2: Conciliando con DINERS solo por monto restando 2.07');
+              
+              // Crear un mapa de DINERS solo por monto para la fase 2
+              const dinersMontoMap = new Map();
+              for (const [compositeKey, dinersGroup] of dinersMap.entries()) {
+                  const dinersTotal = parseFloat(dinersGroup.total);
+                  const montoKey = dinersTotal.toFixed(2);
+                  
+                  if (!dinersMontoMap.has(montoKey)) {
+                      dinersMontoMap.set(montoKey, []);
+                  }
+                  dinersMontoMap.get(montoKey).push({
+                      compositeKey,
+                      dinersGroup
+                  });
+              }
+              
+              // Conciliar extracto pendiente con DINERS por monto - 2.07
+              dataExtractoConEstado.forEach((row, index) => {
+                  if (!row[row.length - 2].startsWith('Pendiente')) return; // Ya conciliado
+                  
+                  const montoRaw = row[montoExtractoIndex];
+                  const monto = convertToNumber(montoRaw);
+                  
+                  if (!isNaN(monto)) {
+                      // Calcular monto ajustado (monto + 2.07)
+                      const montoAjustado = monto + 2.07;
+                      const montoAjustadoKey = montoAjustado.toFixed(2);
+                      
+                      if (dinersMontoMap.has(montoAjustadoKey)) {
+                          const matches = dinersMontoMap.get(montoAjustadoKey);
+                          if (matches.length > 0) {
+                              const matchData = matches.shift();
+                              const { compositeKey, dinersGroup } = matchData;
+                              const dinersTotal = parseFloat(dinersGroup.total);
+                              const opNum = row[opNumExtractoIndex];
+                              
+                              // Verificar si algún registro del grupo tiene estado 'Pendiente MA'
+                              const esArchivoMA = dinersGroup.items.some(item => item.row[item.row.length - 2] === 'Pendiente MA');
+                              const etiqueta = esArchivoMA ? 'MA-' : '';
+                              
+                              // Marcar extracto como conciliado
+                              row[row.length - 2] = `${etiqueta}P3-F2 - CONCILIADO`;
+                              row[row.length - 1] = `${etiqueta}DINERS - Monto: ${monto.toFixed(2)} + 2.07 = ${montoAjustadoKey}`;
+                              
+                              // Marcar todos los items DINERS del grupo como conciliados
+                              dinersGroup.items.forEach(item => {
+                                  item.row[item.row.length - 2] = `${etiqueta}P3-F2 - CONCILIADO`;
+                                  item.row[item.row.length - 1] = `${etiqueta}${opNum} - Monto ajustado: ${montoAjustadoKey}`;
+                              });
+                              
+                              conciliadosDinersFase2++;
+                              conciliadosDiners++;
+                              // console.log(`[EXTRACTO ${index}] ✅ P3-F2 - CONCILIADO con DINERS | Monto Extracto: ${monto.toFixed(2)} | Monto Ajustado: ${montoAjustadoKey} | Monto DINERS: ${dinersTotal}`);
+                              
+                              // Remover del mapa para evitar re-matches
+                              dinersMap.delete(compositeKey);
+                              
+                              // Si no quedan más matches para este monto, eliminar del mapa
+                              if (matches.length === 0) {
+                                  dinersMontoMap.delete(montoAjustadoKey);
+                              }
+                          }
+                      }
+                  }
+              });
+              
+              // FASE 3: Conciliación restando 5.9 a DINERS pendientes
+              // console.log('\n🎯 PASO 3 - FASE 3: Conciliando con DINERS pendientes restando 5.9');
+              let conciliadosDinersFase3 = 0;
+              
+              // Crear mapa de DINERS pendientes restando 5.9
+              const dinersAjustadosMap = new Map();
+              for (const [compositeKey, dinersGroup] of dinersMap.entries()) {
+                  const dinersTotal = parseFloat(dinersGroup.total);
+                  const montoAjustado = dinersTotal - 5.9; // Restar 5.9 al monto DINERS
+                  const montoAjustadoKey = montoAjustado.toFixed(2);
+                  
+                  if (!dinersAjustadosMap.has(montoAjustadoKey)) {
+                      dinersAjustadosMap.set(montoAjustadoKey, []);
+                  }
+                  dinersAjustadosMap.get(montoAjustadoKey).push({
+                      compositeKey,
+                      dinersGroup,
+                      montoOriginal: dinersTotal,
+                      montoAjustado: montoAjustado
+                  });
+              }
+              
+              // Conciliar extracto pendiente con DINERS ajustados (-5.9)
+              dataExtractoConEstado.forEach((row, index) => {
+                  if (!row[row.length - 2].startsWith('Pendiente')) return; // Ya conciliado
+                  
+                  const montoRaw = row[montoExtractoIndex];
+                  const monto = convertToNumber(montoRaw);
+                  
+                  if (!isNaN(monto)) {
+                      const montoKey = monto.toFixed(2);
+                      
+                      if (dinersAjustadosMap.has(montoKey)) {
+                          const matches = dinersAjustadosMap.get(montoKey);
+                          if (matches.length > 0) {
+                              const matchData = matches.shift();
+                              const { compositeKey, dinersGroup, montoOriginal, montoAjustado } = matchData;
+                              const opNum = row[opNumExtractoIndex];
+                              
+                              // Verificar si algún registro del grupo tiene estado 'Pendiente MA'
+                              const esArchivoMA = dinersGroup.items.some(item => item.row[item.row.length - 2] === 'Pendiente MA');
+                              const etiqueta = esArchivoMA ? 'MA-' : '';
+                              
+                              // Marcar extracto como conciliado
+                              row[row.length - 2] = `${etiqueta}P3-F3 - CONCILIADO`;
+                              row[row.length - 1] = `${etiqueta}DINERS - Extracto: ${monto.toFixed(2)} = DINERS: ${montoOriginal.toFixed(2)} - 5.90`;
+                              
+                              // Marcar todos los items DINERS del grupo como conciliados
+                              dinersGroup.items.forEach(item => {
+                                  item.row[item.row.length - 2] = `${etiqueta}P3-F3 - CONCILIADO`;
+                                  item.row[item.row.length - 1] = `${etiqueta}${opNum} - Ajustado: ${montoOriginal.toFixed(2)} - 5.90 = ${montoAjustado.toFixed(2)}`;
+                              });
+                              
+                              conciliadosDinersFase3++;
+                              conciliadosDiners++;
+                              // console.log(`[EXTRACTO ${index}] ✅ P3-F3 - CONCILIADO con DINERS | Extracto: ${monto.toFixed(2)} | DINERS Original: ${montoOriginal.toFixed(2)} | DINERS Ajustado: ${montoAjustado.toFixed(2)}`);
+                              
+                              // Remover del mapa para evitar re-matches
+                              dinersMap.delete(compositeKey);
+                              
+                              // Si no quedan más matches para este monto, eliminar del mapa
+                              if (matches.length === 0) {
+                                  dinersAjustadosMap.delete(montoKey);
+                              }
+                          }
+                      }
+                  }
+              });
+              
+              // console.log(`[DINERS RESUMEN] Total: ${conciliadosDiners} (Fase 1: ${conciliadosDinersFase1}, Fase 2: ${conciliadosDinersFase2}, Fase 3: ${conciliadosDinersFase3})`);
+          }
+
+          // PASO 4: Conciliación MC (3 FASES)
+          let conciliadosMc = 0;
+          let conciliadosMcF1 = 0;
+          let conciliadosMcF2 = 0;
+          let conciliadosMcF3 = 0;
+          if (mcCommerceMap.size > 0) {
+              // console.log('\n💳 PASO 4: Conciliando con MC (3 Fases)');
+              // console.log(`[PASO 4] Comercios MC disponibles:`, Array.from(mcCommerceMap.keys()));
+              
+              // mcCommerceMap.forEach((registros, comercio) => {
+              //     console.log(`[PASO 4] Comercio ${comercio}: ${registros.length} registros individuales`);
+              //     registros.forEach((registro, idx) => {
+              //         console.log(`  Registro ${idx}: Monto: ${registro.monto}`);
+              //     });
+              // });
+
+              // FASE 1: Conciliación por CODCOM + MONTO (línea por línea)
+              // console.log('\n🔄 PASO 4 - FASE 1: Conciliando MC (CODCOM + MONTO)');
+              dataExtractoConEstado.forEach((row, index) => {
+                  if (!row[row.length - 2].startsWith('Pendiente')) return;
+
+                  const referencia2 = String(row[ref2ExtractoIndex] || '').trim();
+                  const monto = convertToNumber(row[montoExtractoIndex]);
+                  
+                  if (referencia2 && !isNaN(monto)) {
+                      // Extraer los 9 dígitos y tomar los últimos 7
+                      const match = referencia2.match(/(\d{9})/);
+                      const fullCode = match ? match[1] : "";
+                      const codcomKey = fullCode.slice(-7);
+                      
+                      // console.log(`[PASO 4-F1] Extracto ${index}: REFERENCIA2="${referencia2}" → codcomKey="${codcomKey}" | Monto: ${monto}`);
+                      
+                      if (mcCommerceMap.has(codcomKey)) {
+                          const potentialMatches = mcCommerceMap.get(codcomKey);
+                          // console.log(`[PASO 4-F1] Encontrado comercio ${codcomKey} con ${potentialMatches.length} registros`);
+                          // console.log(`[PASO 4-F1] Montos disponibles para ${codcomKey}:`, potentialMatches.map(m => m.monto));
+                          const matchIndex = potentialMatches.findIndex(match => Math.abs(monto - match.monto) < 0.01);
+
+                          if (matchIndex !== -1) {
+                              const mcRecord = potentialMatches[matchIndex];
+                              const opNum = row[opNumExtractoIndex];
+                              const fechaProceso = parseDate(row[fechaExtractoIndex]);
+                              const fechaProcesoStr = fechaProceso ? fechaProceso.toLocaleDateString('es-ES', {day: '2-digit', month: '2-digit', year: 'numeric'}) : 'N/A';
+                              
+                              // Verificar si el registro MC tiene estado 'Pendiente MA'
+                              const esArchivoMA = mcRecord.row[mcRecord.row.length - 2] === 'Pendiente MA';
+                              const etiqueta = esArchivoMA ? 'MA-' : '';
+                              
+                              // Marcar extracto como conciliado
+                              row[row.length - 2] = `${etiqueta}P4-F1-Conciliado`;
+                              row[row.length - 1] = `${etiqueta}MC-${codcomKey} - ${fechaProcesoStr}`;
+                              
+                              // Marcar registro MC como conciliado
+                              mcRecord.row[mcRecord.row.length - 2] = `${etiqueta}P4-F1-Conciliado`;
+                              mcRecord.row[mcRecord.row.length - 1] = `${etiqueta}${opNum} - ${fechaProcesoStr}`;
+                              
+                              conciliadosMcF1++;
+                              conciliadosMc++;
+                              // console.log(`[PASO 4-F1] ✅ CONCILIADO: Extracto ${index} con MC registro | Monto: ${monto}`);
+                              potentialMatches.splice(matchIndex, 1); // Eliminar el registro para no reutilizarlo
+                          } else {
+                              // console.log(`[PASO 4-F1] ❌ NO MATCH: Comercio ${codcomKey} encontrado pero sin coincidencia de monto ${monto}`);
+                          }
+                      } else {
+                          // console.log(`[PASO 4-F1] ❌ NO FOUND: Comercio ${codcomKey} no existe en mcCommerceMap`);
+                      }
+                  }
+              });
+
+              // FASE 2: Conciliación solo por MONTO (como AMEX Fase 3)
+              // console.log('\n🔄 PASO 4 - FASE 2: Conciliando MC (solo MONTO)');
+              const mcMontoMap = new Map();
+              
+              // Crear mapa de montos MC pendientes
+              mcCommerceMap.forEach((registros, comercio) => {
+                  registros.forEach(registro => {
+                      if (registro.row[registro.row.length - 2].startsWith('Pendiente')) {
+                          const montoKey = registro.monto.toFixed(2);
+                          if (!mcMontoMap.has(montoKey)) mcMontoMap.set(montoKey, []);
+                          mcMontoMap.get(montoKey).push(registro);
+                      }
+                  });
+              });
+
+              dataExtractoConEstado.forEach((row, index) => {
+                  if (!row[row.length - 2].startsWith('Pendiente')) return;
+
+                  const monto = convertToNumber(row[montoExtractoIndex]);
+                  if (!isNaN(monto)) {
+                      const montoKey = monto.toFixed(2);
+                      
+                      if (mcMontoMap.has(montoKey)) {
+                          const matches = mcMontoMap.get(montoKey);
+                          if (matches.length > 0) {
+                              const mcRecord = matches.shift();
+                              const opNum = row[opNumExtractoIndex];
+                              const fechaProceso = parseDate(row[fechaExtractoIndex]);
+                              const fechaProcesoStr = fechaProceso ? fechaProceso.toLocaleDateString('es-ES', {day: '2-digit', month: '2-digit', year: 'numeric'}) : 'N/A';
+                              
+                              // Verificar si el registro MC tiene estado 'Pendiente MA'
+                              const esArchivoMA = mcRecord.row[mcRecord.row.length - 2] === 'Pendiente MA';
+                              const etiqueta = esArchivoMA ? 'MA-' : '';
+                              
+                              // Marcar extracto como conciliado
+                              row[row.length - 2] = `${etiqueta}P4-F2-Conciliado`;
+                              row[row.length - 1] = `${etiqueta}MC-Monto: ${montoKey} - ${fechaProcesoStr}`;
+                              
+                              // Marcar registro MC como conciliado
+                              mcRecord.row[mcRecord.row.length - 2] = `${etiqueta}P4-F2-Conciliado`;
+                              mcRecord.row[mcRecord.row.length - 1] = `${etiqueta}${opNum} - Monto: ${montoKey}`;
+                              
+                              conciliadosMcF2++;
+                              conciliadosMc++;
+                              // console.log(`[PASO 4-F2] ✅ CONCILIADO: Extracto ${index} con MC por monto | Monto: ${monto}`);
+                              
+                              if (matches.length === 0) mcMontoMap.delete(montoKey);
+                          }
+                      }
+                  }
+              });
+
+              // FASE 3: Agrupación por fecha del extracto vs pendientes MC
+              // console.log('\n🔄 PASO 4 - FASE 3: Conciliando MC (Agrupación por fecha extracto)');
+              const extractoFechaGroups = new Map();
+              
+              // Agrupar extracto pendiente por fecha
+              dataExtractoConEstado.forEach((row, index) => {
+                  if (!row[row.length - 2].startsWith('Pendiente')) return;
+                  
+                  const fechaRaw = row[fechaExtractoIndex];
+                  const monto = convertToNumber(row[montoExtractoIndex]);
+                  
+                  if (fechaRaw && !isNaN(monto)) {
+                      const fechaKey = createDateKey(fechaRaw);
+                      if (fechaKey) {
+                          
+                          if (!extractoFechaGroups.has(fechaKey)) extractoFechaGroups.set(fechaKey, { total: 0, items: [] });
+                          const group = extractoFechaGroups.get(fechaKey);
+                          group.total += monto;
+                          group.items.push({ row, index });
+                      }
+                  }
+              });
+
+              // Crear lista de MC pendientes con sus totales
+              const mcPendientes = [];
+              mcCommerceMap.forEach((registros, comercio) => {
+                  registros.forEach(registro => {
+                      if (registro.row[registro.row.length - 2].startsWith('Pendiente')) {
+                          mcPendientes.push(registro);
+                      }
+                  });
+              });
+
+              // Conciliar totales de fecha extracto vs MC pendientes
+              // console.log(`[PASO 4-F3] Procesando ${extractoFechaGroups.size} fechas de extracto vs ${mcPendientes.length} registros MC pendientes`);
+              let procesedDatesMC = 0;
+              extractoFechaGroups.forEach((extractoGroup, fechaKey) => {
+                  procesedDatesMC++;
+                  const totalExtracto = parseFloat(extractoGroup.total.toFixed(2));
+                  // console.log(`[PASO 4-F3] Procesando fecha ${procesedDatesMC}/${extractoFechaGroups.size}: ${fechaKey} con total ${totalExtracto}`);
+                  
+                  // Buscar combinaciones de MC que sumen este total
+                  const mcCombination = findCombinationBySum(mcPendientes, totalExtracto);
+                  
+                  if (mcCombination.length > 0) {
+                      // console.log(`[PASO 4-F3] ✅ CONCILIADO: Fecha ${fechaKey} total ${totalExtracto} con ${mcCombination.length} registros MC`);
+                      
+                      // Verificar si algún registro MC tiene estado 'Pendiente MA'
+                      const esArchivoMA = mcCombination.some(mcRecord => mcRecord.row[mcRecord.row.length - 2] === 'Pendiente MA');
+                      const etiqueta = esArchivoMA ? 'MA-' : '';
+                      
+                      // Marcar extracto como conciliado
+                      extractoGroup.items.forEach(item => {
+                          item.row[item.row.length - 2] = `${etiqueta}P4-F3-Conciliado`;
+                          item.row[item.row.length - 1] = `${etiqueta}MC-Fecha: ${fechaKey} - Total: ${totalExtracto}`;
+                      });
+                      
+                      // Marcar MC como conciliado
+                      mcCombination.forEach(mcRecord => {
+                          const esRegistroMA = mcRecord.row[mcRecord.row.length - 2] === 'Pendiente MA';
+                          const etiquetaMC = esRegistroMA ? 'MA-' : '';
+                          mcRecord.row[mcRecord.row.length - 2] = `${etiquetaMC}P4-F3-Conciliado`;
+                          mcRecord.row[mcRecord.row.length - 1] = `${etiquetaMC}Extracto-Fecha: ${fechaKey} - Total: ${totalExtracto}`;
+                      });
+                      
+                      conciliadosMcF3 += extractoGroup.items.length;
+                      conciliadosMc += extractoGroup.items.length;
+                  }
+              });
+
+              // console.log(`[PASO 4] RESUMEN: F1=${conciliadosMcF1}, F2=${conciliadosMcF2}, F3=${conciliadosMcF3}, Total=${conciliadosMc} conciliaciones MC`);
+          }
+
+          // Función auxiliar para crear fechas sin problemas de zona horaria
+          function createDateKey(dateValue) {
+              if (!dateValue) return null;
+              
+              const parsed = parseDate(dateValue);
+              if (!parsed) return null;
+              
+              // Usar getFullYear, getMonth, getDate para fecha local sin UTC
+              const year = parsed.getFullYear();
+              const month = String(parsed.getMonth() + 1).padStart(2, '0');
+              const day = String(parsed.getDate()).padStart(2, '0');
+              
+              const dateKey = `${year}-${month}-${day}`;
+              // console.log(`[FECHA DEBUG] Input: ${dateValue} → Parsed: ${parsed.toString()} → Key: ${dateKey}`);
+              return dateKey;
+          }
+
+          // Función auxiliar para encontrar combinaciones que sumen un total específico
+          function findCombinationBySum(records, targetSum) {
+              // Limitar el número de registros para evitar colgarse
+              const maxRecords = Math.min(records.length, 50); // Máximo 50 registros para evitar complejidad
+              const limitedRecords = records.slice(0, maxRecords);
+              
+              // 1. Match exacto
+              for (let i = 0; i < limitedRecords.length; i++) {
+                  if (Math.abs(limitedRecords[i].monto - targetSum) < 0.01) {
+                      return [limitedRecords[i]];
+                  }
+              }
+              
+              // 2. Combinaciones de 2 (limitado a primeros 20 para evitar n²)
+              const maxPairs = Math.min(limitedRecords.length, 20);
+              for (let i = 0; i < maxPairs; i++) {
+                  for (let j = i + 1; j < maxPairs; j++) {
+                      const sum = limitedRecords[i].monto + limitedRecords[j].monto;
+                      if (Math.abs(sum - targetSum) < 0.01) {
+                          return [limitedRecords[i], limitedRecords[j]];
+                      }
+                  }
+              }
+              
+              // 3. Combinaciones de 3 (limitado a primeros 10 para evitar n³)
+              const maxTriples = Math.min(limitedRecords.length, 10);
+              for (let i = 0; i < maxTriples; i++) {
+                  for (let j = i + 1; j < maxTriples; j++) {
+                      for (let k = j + 1; k < maxTriples; k++) {
+                          const sum = limitedRecords[i].monto + limitedRecords[j].monto + limitedRecords[k].monto;
+                          if (Math.abs(sum - targetSum) < 0.01) {
+                              return [limitedRecords[i], limitedRecords[j], limitedRecords[k]];
+                          }
+                      }
+                  }
+              }
+              
+              return []; // No encontró combinación
+          }
+
+          // PASO 5: Conciliación VISA (2 FASES)
+          let conciliadosVisaF1 = 0;
+          let conciliadosVisaF2 = 0;
+          let conciliadosVisa = 0;
+          
+          if (visaCommerceMap.size > 0) {
+              // console.log('\n🏛️ PASO 5: Conciliando con VISA (2 FASES)');
+              // console.log(`[PASO 5] Comercios VISA disponibles:`, Array.from(visaCommerceMap.keys()));
+              
+              // FASE 1: Línea de extracto vs Grupos totalizados de VISA
+              // console.log('\n--- FASE 1: Extracto línea vs VISA grupos ---');
+              dataExtractoConEstado.forEach((row, index) => {
+                  if (!row[row.length - 2].startsWith('Pendiente')) return;
+
+                  const referencia2 = String(row[ref2ExtractoIndex] || '').trim();
+                  const monto = convertToNumber(row[montoExtractoIndex]);
+                  
+                  if (referencia2 && !isNaN(monto)) {
+                      // Extraer los 9 dígitos y tomar los últimos 7
+                      const match = referencia2.match(/(\d{9})/);
+                      const fullCode = match ? match[1] : "";
+                      const codcomKey = fullCode.slice(-7);
+                      
+                      // console.log(`[PASO 5 F1] Extracto ${index}: REFERENCIA2="${referencia2}" → codcomKey="${codcomKey}" | Monto: ${monto}`);
+                      
+                      if (visaCommerceMap.has(codcomKey)) {
+                          const gruposVisa = visaCommerceMap.get(codcomKey);
+                          
+                          // Buscar grupo VISA que coincida con el monto del extracto
+                          const matchIndex = gruposVisa.findIndex(grupo => Math.abs(monto - grupo.total) < 0.01);
+                          
+                          if (matchIndex !== -1) {
+                              const grupoVisa = gruposVisa[matchIndex];
+                              const opNum = row[opNumExtractoIndex];
+                              const fechaProceso = parseDate(row[fechaExtractoIndex]);
+                              const fechaProcesoStr = fechaProceso ? fechaProceso.toLocaleDateString('es-ES', {day: '2-digit', month: '2-digit', year: 'numeric'}) : 'N/A';
+                              
+                              // Verificar si algún registro VISA del grupo tiene estado 'Pendiente MA'
+                              const esArchivoMA = grupoVisa.items.some(item => item.row[item.row.length - 2] === 'Pendiente MA');
+                              const etiqueta = esArchivoMA ? 'MA-' : '';
+                              
+                              // Marcar extracto como conciliado F1
+                              row[row.length - 2] = `${etiqueta}P5-F1-Conciliado`;
+                              row[row.length - 1] = `${etiqueta}VISA-${codcomKey} - ${fechaProcesoStr}`;
+                              
+                              // Marcar todos los registros VISA del grupo como conciliados F1
+                              grupoVisa.items.forEach(item => {
+                                  item.row[item.row.length - 2] = `${etiqueta}P5-F1-Conciliado`;
+                                  item.row[item.row.length - 1] = `${etiqueta}${opNum} - ${fechaProcesoStr}`;
+                              });
+                              
+                              conciliadosVisaF1++;
+                              // console.log(`[PASO 5 F1] ✅ CONCILIADO: Extracto ${index} con VISA grupo | Monto: ${monto}`);
+                              gruposVisa.splice(matchIndex, 1); // Eliminar el grupo para no reutilizarlo
+                              
+                              if (gruposVisa.length === 0) {
+                                  visaCommerceMap.delete(codcomKey);
+                              }
+                          }
+                      }
+                  }
+              });
+              
+              // FASE 2: Agrupar extracto por fecha y comercio, comparar con grupos VISA
+              // console.log('\n--- FASE 2: Extracto agrupado por fecha vs VISA grupos por fecha ---');
+              
+              // Agrupar extracto pendiente por fecha y comercio
+              let extractoFechaGroups = new Map();
+              dataExtractoConEstado.forEach((row, index) => {
+                  if (!row[row.length - 2].startsWith('Pendiente')) return;
+                  
+                  const fechaRaw = row[fechaExtractoIndex];
+                  const monto = convertToNumber(row[montoExtractoIndex]);
+                  const referencia2 = String(row[ref2ExtractoIndex] || '').trim();
+                  
+                  if (fechaRaw && !isNaN(monto) && referencia2) {
+                      const fechaKey = createDateKey(fechaRaw);
+                      if (fechaKey) {
+                          // Extraer código de comercio
+                          const match = referencia2.match(/(\d{9})/);
+                          const fullCode = match ? match[1] : "";
+                          const codcomKey = fullCode.slice(-7);
+                          
+                          if (codcomKey) {
+                              const groupKey = `${fechaKey}-${codcomKey}`;
+                              if (!extractoFechaGroups.has(groupKey)) {
+                                  extractoFechaGroups.set(groupKey, { 
+                                      fechaKey, 
+                                      codcomKey, 
+                                      total: 0, 
+                                      items: [] 
+                                  });
+                              }
+                              const group = extractoFechaGroups.get(groupKey);
+                              group.total += monto;
+                              group.items.push({ row, index });
+                          }
+                      }
+                  }
+              });
+              
+              // console.log(`[PASO 5 F2] Grupos de extracto creados: ${extractoFechaGroups.size}`);
+              
+              // Comparar grupos del extracto con grupos de VISA
+              extractoFechaGroups.forEach((grupoExtracto, groupKey) => {
+                  const { fechaKey, codcomKey } = grupoExtracto;
+                  
+                  if (visaCommerceMap.has(codcomKey)) {
+                      const gruposVisa = visaCommerceMap.get(codcomKey);
+                      
+                      // Buscar grupo VISA con el mismo monto total (fechas pueden ser diferentes)
+                      const matchIndex = gruposVisa.findIndex(grupoVisa => {
+                          const visaFechaKey = createDateKey(grupoVisa.fechaProceso);
+                          const montoMatch = Math.abs(grupoExtracto.total - grupoVisa.total) < 0.01;
+                          // console.log(`[PASO 5 F2] Comparando: Extracto ${fechaKey}:${grupoExtracto.total} vs VISA ${visaFechaKey}:${grupoVisa.total} = ${montoMatch}`);
+                          return montoMatch; // Solo por monto, no por fecha
+                      });
+                      
+                      if (matchIndex !== -1) {
+                          const grupoVisa = gruposVisa[matchIndex];
+                          
+                          const visaFechaKey = createDateKey(grupoVisa.fechaProceso);
+                          
+                          // Determinar prefijo MA- si algún archivo VISA tiene formato mes-año
+                          const tieneFormatoMesAnio = grupoVisa.formatoMesAnio;
+                          // Verificar si algún registro VISA del grupo tiene estado 'Pendiente MA'
+                          const esArchivoMA = grupoVisa.items.some(item => item.row[item.row.length - 2] === 'Pendiente MA');
+                          const etiqueta = esArchivoMA ? 'MA-' : '';
+                          
+                          // Marcar todos los registros del extracto como conciliados F2
+                          grupoExtracto.items.forEach(item => {
+                              const opNum = item.row[opNumExtractoIndex];
+                              item.row[item.row.length - 2] = `${etiqueta}P5-F2-Conciliado`;
+                              item.row[item.row.length - 1] = `${etiqueta}VISA-${codcomKey} - Monto: ${grupoExtracto.total} (${fechaKey}→${visaFechaKey})`;
+                          });
+                          
+                          // Marcar todos los registros VISA del grupo como conciliados F2
+                          grupoVisa.items.forEach(item => {
+                              const firstOpNum = grupoExtracto.items[0].row[opNumExtractoIndex];
+                              const esRegistroMA = item.row[item.row.length - 2] === 'Pendiente MA';
+                              const etiquetaVisa = esRegistroMA ? 'MA-' : '';
+                              item.row[item.row.length - 2] = `${etiquetaVisa}P5-F2-Conciliado`;
+                              item.row[item.row.length - 1] = `${etiquetaVisa}${firstOpNum} - Monto: ${grupoExtracto.total} (${fechaKey}→${visaFechaKey})`;
+                          });
+                          
+                          // Remover el grupo VISA usado
+                          gruposVisa.splice(matchIndex, 1);
+                          if (gruposVisa.length === 0) {
+                              visaCommerceMap.delete(codcomKey);
+                          }
+                          
+                          conciliadosVisaF2++;
+                          // console.log(`[PASO 5 F2] ✅ CONCILIADO: Comercio ${codcomKey} - Monto: ${grupoExtracto.total} - Extracto(${fechaKey}) vs VISA(${visaFechaKey})`);
+                      }
+                  }
+              });
+              
+              conciliadosVisa = conciliadosVisaF1 + conciliadosVisaF2;
+              // console.log(`[PASO 5] RESUMEN: F1=${conciliadosVisaF1}, F2=${conciliadosVisaF2}, Total=${conciliadosVisa} conciliaciones VISA`);
+          }
+
+          // PASO 6: Conciliación PAYU
+          let conciliadosPayu = 0;
+          if (payuMap.size > 0) {
+              // console.log('\n💰 PASO 6: Conciliando con PAYU');
+              dataExtractoConEstado.forEach((row, index) => {
+                  if (!row[row.length - 2].startsWith('Pendiente')) return; // Ya conciliado
+
+                  const fechaRaw = row[fechaExtractoIndex];
+                  const montoRaw = row[montoExtractoIndex];
+                  
+                  const fecha = parseDate(fechaRaw);
+                  const monto = convertToNumber(montoRaw);
+                  
+                  if (!isNaN(monto)) {
+                      const key = `${monto.toFixed(2)}`;
+                      
+                      if (payuMap.has(key)) {
+                          const matches = payuMap.get(key);
+                          if (matches.length > 0) {
+                              const matchData = matches.shift();
+                              const matchRow = matchData.row;
+                              
+                              const debitos = matchRow[payuHeaders.indexOf('DEBITOS')];
+                              const opNum = row[opNumExtractoIndex];
+                              const fechaStr = fecha ? fecha.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'N/A';
+                              
+                              // Determinar prefijo MA- si el archivo tiene formato mes-año
+                              const prefijo = matchData.formatoMesAnio ? 'MA-' : '';
+                              
+                              // Marcar como conciliado con prefijo P6
+                              row[row.length - 2] = `${prefijo}P6 - CONCILIADO`;
+                              row[row.length - 1] = `PAYU - Monto: ${monto.toFixed(2)}`;
+                              matchRow[matchRow.length - 2] = `${prefijo}P6 - CONCILIADO`;
+                              matchRow[matchRow.length - 1] = `${opNum} - Monto: ${monto.toFixed(2)}`;
+                              
+                              conciliadosPayu++;
+                              // console.log(`[EXTRACTO ${index}] ✅ P6 - CONCILIADO con PAYU débitos ${debitos}`);
+                              
+                              if (matches.length === 0) payuMap.delete(key);
+                          }
+                      }
+                  }
+              });
+          }
+
+          // console.log(`\n=== RESUMEN DE CONCILIACIÓN ===`);
+          // console.log(`P2-F2 - AMEX (fecha+monto): ${conciliadosAmexF2} conciliaciones`);
+          // console.log(`P2-F3 - AMEX (solo monto): ${conciliadosAmexF3} conciliaciones`);
+          // console.log(`P2 - AMEX Total: ${conciliadosAmex} conciliaciones`);
+          // console.log(`P3 - DINERS: ${conciliadosDiners} conciliaciones`);
+          // console.log(`P4 - MC: ${conciliadosMc} conciliaciones`);
+          // console.log(`P5 - VISA: ${conciliadosVisa} conciliaciones`);
+          // console.log(`P6 - PAYU: ${conciliadosPayu} conciliaciones`);
+          
+          const totalPendientes = dataExtractoConEstado.filter(row => row[row.length - 2].startsWith('Pendiente')).length;
+          // console.log(`PENDIENTES: ${totalPendientes} registros`);
+
+          return {
+              conciliadoExtracto: [finalExtractoHeaders, ...dataExtractoConEstado],
+              conciliadoAmex: finalAmexHeaders.length > 0 ? [finalAmexHeaders, ...dataAmexConEstado] : [],
+              conciliadoDiners: finalDinersHeaders.length > 0 ? [finalDinersHeaders, ...datadinersConEstado] : [],
+              conciliadoMc: finalMcHeaders.length > 0 ? [finalMcHeaders, ...datamcConEstado] : [],
+              conciliadoVisa: finalVisaHeaders.length > 0 ? [finalVisaHeaders, ...datavisaConEstado] : [],
+              conciliadoPayu: finalPayuHeaders.length > 0 ? [finalPayuHeaders, ...datapayuConEstado] : []
+          };
+      }
+
+      async function readFileAndGetData(file, options) {
+          return new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = function(e) {
+                  try {
+                      const data = new Uint8Array(e.target.result);
+                      const workbook = XLSX.read(data, { type: 'array' });
+                      const sheetName = workbook.SheetNames[0];
+                      const worksheet = workbook.Sheets[sheetName];
+                      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null });
+
+                      if (!jsonData || jsonData.length === 0) throw new Error(`El archivo ${file.name} está vacío.`);
+                      
+                      const headerRowIndex = options.headerRow ? options.headerRow - 1 : 0;
+                      if (jsonData.length <= headerRowIndex) throw new Error(`El archivo ${file.name} no tiene una fila de encabezado en la posición ${options.headerRow || 1}.`);
+                      
+                      const headers = jsonData[headerRowIndex].map(h => String(h || '').trim());
+                      const upperHeaders = headers.map(h => h.toUpperCase());
+                      
+                      // Agregar información de formato MMMAA si existe en el archivo
+                      if (file.formatoMesAnio) {
+                          console.log(`Archivo con formato MMMAA detectado: ${file.mesMesAnio}${file.anioMesAnio}`);
+                      }
+
+                      // Verificar si es un archivo PAYU (por el nombre o por las columnas presentes)
+                      const isPayuFile = file.name.toLowerCase().includes('payu') || 
+                                        (upperHeaders.includes('DESCRIPCION') && 
+                                         upperHeaders.includes('DEBITOS') && 
+                                         upperHeaders.includes('DOCUMENTO'));
+
+                      // Si es un archivo PAYU y está intentando validar columnas que no son de PAYU
+                      if (isPayuFile && options.requiredHeaders.includes('NETO_TOTAL')) {
+                          // Ajustar los encabezados requeridos para PAYU
+                          options.requiredHeaders = ['FECHA', 'DOCUMENTO', 'DESCRIPCION', 'CREDITOS', 'DEBITOS', 'NUEVO SALDO', 'SALDO CONGELADO ANTERIOR', 'SALDO RESERVA', 'SALDO DISPONIBLE'];
+                      }
+
+                      const missingHeaders = options.requiredHeaders.filter(h => !upperHeaders.includes(h.toUpperCase()));
+                      if (missingHeaders.length > 0) {
+                          throw new Error(`Al archivo ${file.name} le faltan las columnas: ${missingHeaders.join(', ')}`);
+                      }
+
+                      // Devolver headers (con casing original) y el resto de los datos
+                      resolve([headers, ...jsonData.slice(headerRowIndex + 1)]);
+
+                  } catch (error) {
+                      reject(error);
+                  }
+              };
+              reader.onerror = (error) => reject(new Error(`No se pudo leer el archivo ${file.name}`));
+              reader.readAsArrayBuffer(file);
+          });
+      }
+
+      function convertToNumber(value) {
+          if (!value || value === null || value === undefined) {
+              return NaN;
+          }
+          
+          if (typeof value === 'number') {
+              // console.log(`[convertToNumber] Valor ya es numérico: ${value}`);
+              return value;
+          }
+          
+          if (typeof value === 'string') {
+              if (value.trim() === '') {
+                  return NaN;
+              }
+              // Maneja formatos como "1.190,07" (remueve puntos, reemplaza coma) o "1190.07"
+              const cleanValue = value.replace(/\./g, '').replace(',', '.');
+              const num = parseFloat(cleanValue);
+              // console.log(`[convertToNumber] String "${value}" -> Limpio "${cleanValue}" -> Número ${num}`);
+              return num;
+          }
+          // console.warn(`[convertToNumber] Falló la conversión para el valor:`, value);
+          return NaN;
+      }
+
+      function parseDate(value) {
+          // 1. Validaciones iniciales
+          if (value === null || value === undefined) return null;
+          if (value instanceof Date && !isNaN(value)) return value;
+          
+          const strValue = String(value).trim();
+          if (strValue === '') return null;
+
+          // 2. Formato ISO: yyyy-mm-dd
+          if (strValue.includes('-') && strValue.length === 10) {
+              const parts = strValue.split('-');
+              if (parts.length === 3) {
+                  const year = parseInt(parts[0], 10);
+                  const month = parseInt(parts[1], 10) - 1;
+                  const day = parseInt(parts[2], 10);
+                  if (!isNaN(day) && !isNaN(month) && !isNaN(year) && year > 1900) {
+                      const date = new Date(year, month, day);
+                      // console.log(`[parseDate] ISO "${value}" (yyyy-mm-dd) ->`, date.toString());
+                      return date;
+                  }
+              }
+          }
+
+          // 3. Formato de texto: dd/mm/aaaa
+          if (strValue.includes('/')) {
+              const parts = strValue.split('/');
+              if (parts.length === 3) {
+                  const day = parseInt(parts[0], 10);
+                  const month = parseInt(parts[1], 10) - 1;
+                  const year = parseInt(parts[2], 10);
+                  if (!isNaN(day) && !isNaN(month) && !isNaN(year) && year > 1900) {
+                      const date = new Date(year, month, day);
+                      // console.log(`[parseDate] String "${value}" (dd/mm/aaaa) ->`, date.toString());
+                      return date;
+                  }
+              }
+          }
+
+          // 4. Formatos numéricos (como string o number)
+          if (!isNaN(strValue)) {
+              // A. Número de serie de Excel (son valores relativamente bajos)
+              const numValue = Number(value);
+              if (numValue > 0 && numValue < 100000) {
+                  const utc_days = Math.floor(numValue - 25569);
+                  const utc_value = utc_days * 86400;
+                  const date_info = new Date(utc_value * 1000);
+                  const date = new Date(date_info.getTime() + (date_info.getTimezoneOffset() * 60 * 1000));
+                  // console.log(`[parseDate] Serial Excel "${value}" ->`, date.toUTCString());
+                  return date;
+              }
+
+              // B. Formato VISA (dmmaaaa o ddmmaaaa)
+              let visaStr = strValue;
+              if (visaStr.length === 7) visaStr = '0' + visaStr;
+              if (visaStr.length === 8) {
+                  const day = parseInt(visaStr.substring(0, 2), 10);
+                  const month = parseInt(visaStr.substring(2, 4), 10);
+                  const year = parseInt(visaStr.substring(4, 8), 10);
+                  if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year > 1900) {
+                      const date = new Date(year, month - 1, day);
+                      // console.log(`[parseDate] VISA-like "${value}" (ddmmaaaa) ->`, date.toString());
+                      return date;
+                  }
+              }
+              
+              // C. Formato AMEX (aaaammdd)
+              if (strValue.length === 8) {
+                  const year = parseInt(strValue.substring(0, 4), 10);
+                  const month = parseInt(strValue.substring(4, 6), 10);
+                  const day = parseInt(strValue.substring(6, 8), 10);
+                  if (year > 1900 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+                      const date = new Date(year, month - 1, day);
+                      // console.log(`[parseDate] AMEX-like "${value}" (aaaammdd) ->`, date.toString());
+                      return date;
+                  }
+              }
+          }
+
+          // console.warn(`[parseDate] Falló el parseo para el valor:`, value);
+          return null;
+      }
+
+      function generateAndDownloadExcel() {
+        if (processedData.extracto.length === 0) {
+            addBotMessage('❌ No hay datos procesados para exportar.');
+            return;
+        }
+        
+        const workbook = XLSX.utils.book_new();
+        
+        // Hoja EXTRACTO (siempre presente)
+        const extractoWorksheet = XLSX.utils.aoa_to_sheet(processedData.extracto);
+        XLSX.utils.book_append_sheet(workbook, extractoWorksheet, 'EXTRACTO');
+        
+        // Hoja AMEX (si hay datos)
+        if (processedData.amex.length > 0) {
+            const amexWorksheet = XLSX.utils.aoa_to_sheet(processedData.amex);
+            XLSX.utils.book_append_sheet(workbook, amexWorksheet, 'AMEX');
+        }
+        
+        // Hoja DINERS (si hay datos)
+        if (processedData.diners.length > 0) {
+            const dinersWorksheet = XLSX.utils.aoa_to_sheet(processedData.diners);
+            XLSX.utils.book_append_sheet(workbook, dinersWorksheet, 'DINERS');
+        }
+
+        // Hoja MC (si hay datos)
+        if (processedData.mc.length > 0) {
+            const mcWorksheet = XLSX.utils.aoa_to_sheet(processedData.mc);
+            XLSX.utils.book_append_sheet(workbook, mcWorksheet, 'MC');
+        }
+
+        // Hoja VISA (si hay datos)
+        if (processedData.visa.length > 0) {
+            const visaWorksheet = XLSX.utils.aoa_to_sheet(processedData.visa);
+            XLSX.utils.book_append_sheet(workbook, visaWorksheet, 'VISA');
+        }
+
+        // Hoja PAYU (si hay datos)
+        if (processedData.payu.length > 0) {
+            const payuWorksheet = XLSX.utils.aoa_to_sheet(processedData.payu);
+            XLSX.utils.book_append_sheet(workbook, payuWorksheet, 'PAYU');
+        }
+
+        const fileName = `CONCILIACION_${selectedCurrency}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        XLSX.writeFile(workbook, fileName);
+        addBotMessage('✅ Excel de conciliación generado. La descarga debería comenzar en breve.');
+      };
+    });
+  </script>
+</body>
+</html>

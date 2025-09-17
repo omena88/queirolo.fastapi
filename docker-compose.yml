@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  queirolo-conciliador:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./temp:/app/temp
+      - ./outputs:/app/outputs
+    environment:
+      - PYTHONPATH=/app
+    restart: unless-stopped
+    container_name: queirolo-conciliador
+    
+    # Para desarrollo: montar código fuente para hot reload
+    # Descomenta las siguientes líneas para desarrollo
+    # volumes:
+    #   - .:/app
+    #   - ./temp:/app/temp
+    #   - ./outputs:/app/outputs
+    # command: uvicorn conciliador:app --host 0.0.0.0 --port 8000 --reload

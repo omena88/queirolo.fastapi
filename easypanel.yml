@@ -1,0 +1,55 @@
+# Configuración para EasyPanel
+# Sistema de Conciliación - Santiago Queirolo
+
+name: queirolo-conciliador
+description: "Sistema completo de conciliación bancaria con interfaz web moderna"
+
+# Configuración de la aplicación
+app:
+  type: docker
+  dockerfile: Dockerfile
+  port: 8000
+  
+# Variables de entorno
+env:
+  - name: PORT
+    value: "8000"
+  - name: PYTHONPATH
+    value: "/app"
+  - name: PYTHONUNBUFFERED
+    value: "1"
+
+# Configuración de recursos
+resources:
+  memory: 512Mi
+  cpu: 0.5
+
+# Configuración de volúmenes (opcional)
+volumes:
+  - name: temp-storage
+    path: /app/temp
+    size: 1Gi
+  - name: outputs-storage
+    path: /app/outputs
+    size: 2Gi
+
+# Configuración de salud
+health:
+  path: /
+  port: 8000
+  interval: 30s
+  timeout: 10s
+  retries: 3
+
+# Configuración de dominio
+domain:
+  # Configurar tu dominio personalizado aquí
+  # custom: conciliador.tudominio.com
+  
+# Configuración de SSL
+ssl:
+  enabled: true
+  
+# Configuración de logs
+logs:
+  retention: 7d
