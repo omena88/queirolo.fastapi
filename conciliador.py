@@ -290,6 +290,7 @@ async def upload_files(file_type: str, files: List[UploadFile] = File(...)):
                     
             elif file_type == 'mc':
                 required_cols = ['NETO_TOTAL', 'FECHA_ABONO']
+                # MC necesita CODCOM que se extrae del nombre del archivo
                 print(f"📄 MC - Archivo: {file.filename}")
                 print(f"📄 MC - Columnas disponibles: {list(df.columns)}")
                 print(f"📄 MC - Formato MA detectado: {formato_mes_anio}")
@@ -309,26 +310,48 @@ async def upload_files(file_type: str, files: List[UploadFile] = File(...)):
                             missing_cols.append(col)
                 
                 if not missing_cols:
-                    # Agregar CODCOM desde nombre archivo
+                    # Extraer CODCOM del nombre del archivo
                     codcom = file.filename.split('-')[0] if '-' in file.filename else file.filename.split('.')[0]
-                    df.insert(0, 'CODCOM', codcom)
-                    df_filtered = df[pd.to_numeric(df['NETO_TOTAL'], errors='coerce') != 0].copy()
-                    estado_inicial = 'Pendiente MA' if formato_mes_anio['encontrado'] else 'Pendiente'
-                    df_filtered['ESTADO'] = estado_inicial
-                    df_filtered['#REF'] = ''
-                    mc_data.append(df_filtered)
                     
-                    # Guardar info del archivo
-                    file_info = {
-                        'name': file.filename,
-                        'formato_mes_anio': formato_mes_anio['encontrado'],
-                        'mes': formato_mes_anio.get('mes'),
-                        'anio': formato_mes_anio.get('anio'),
-                        'rows': len(df_filtered)
-                    }
-                    files_info['mc'].extend([file_info] * len(df_filtered))
-                    processed_count += len(df_filtered)
-                    print(f"✅ MC procesado: {len(df_filtered)} registros, Estado: {estado_inicial}")
+                    # Mapear datos usando índices y filtrar por NETO_TOTAL != 0
+                    raw_data = df.values
+                    neto_total_idx = header_map[required_cols.index('NETO_TOTAL')]
+                    fecha_abono_idx = header_map[required_cols.index('FECHA_ABONO')]
+                    filtered_data = []
+                    
+                    for row in raw_data:
+                        neto_total = convert_to_number(row[neto_total_idx])
+                        if not pd.isna(neto_total) and neto_total != 0:
+                            # Crear fila con CODCOM + columnas requeridas
+                            mapped_row = [codcom, row[neto_total_idx], row[fecha_abono_idx]]
+                            filtered_data.append(mapped_row)
+                    
+                    if filtered_data:
+                        # Crear DataFrame con CODCOM + columnas requeridas + ESTADO + #REF
+                        estado_inicial = 'Pendiente MA' if formato_mes_anio['encontrado'] else 'Pendiente'
+                        final_data = []
+                        for row in filtered_data:
+                            final_row = row + [estado_inicial, '']
+                            final_data.append(final_row)
+                        
+                        # Headers finales: CODCOM + columnas originales + ESTADO + #REF
+                        final_headers = ['CODCOM'] + required_cols + ['ESTADO', '#REF']
+                        df_final = pd.DataFrame(final_data, columns=final_headers)
+                        mc_data.append(df_final)
+                        
+                        # Guardar info del archivo
+                        file_info = {
+                            'name': file.filename,
+                            'formato_mes_anio': formato_mes_anio['encontrado'],
+                            'mes': formato_mes_anio.get('mes'),
+                            'anio': formato_mes_anio.get('anio'),
+                            'rows': len(final_data)
+                        }
+                        files_info['mc'].extend([file_info] * len(final_data))
+                        processed_count += len(final_data)
+                        print(f"✅ MC procesado: {len(final_data)} registros, Estado: {estado_inicial}")
+                    else:
+                        print(f"⚠️ MC - No hay registros válidos en {file.filename}")
                 else:
                     print(f"❌ MC - Faltan columnas: {missing_cols}")
                     
@@ -338,68 +361,137 @@ async def upload_files(file_type: str, files: List[UploadFile] = File(...)):
                 print(f"📄 VISA - Columnas disponibles: {list(df.columns)}")
                 print(f"📄 VISA - Formato MA detectado: {formato_mes_anio}")
                 
-                # Verificar columnas con flexibilidad
+                # Mapear columnas usando índices como en el original
+                header_map = []
                 missing_cols = []
                 for col in required_cols:
-                    if col not in df.columns:
-                        # Buscar columnas similares
-                        found = False
-                        for df_col in df.columns:
-                            if col.upper() in str(df_col).upper() or col.replace('/', ' ').upper() in str(df_col).upper():
-                                df = df.rename(columns={df_col: col})
-                                found = True
-                                break
-                        if not found:
-                            missing_cols.append(col)
+                    found_index = -1
+                    for i, df_col in enumerate(df.columns):
+                        if col.upper() == str(df_col).upper():
+                            found_index = i
+                            break
+                    if found_index == -1:
+                        missing_cols.append(col)
+                    else:
+                        header_map.append(found_index)
                 
                 if not missing_cols:
-                    df_filtered = df[pd.to_numeric(df['IMPORTE NETO'], errors='coerce') != 0].copy()
-                    estado_inicial = 'Pendiente MA' if formato_mes_anio['encontrado'] else 'Pendiente'
-                    df_filtered['ESTADO'] = estado_inicial
-                    df_filtered['#REF'] = ''
-                    visa_data.append(df_filtered)
+                    # Mapear datos usando índices y filtrar por IMPORTE NETO != 0
+                    raw_data = df.values
+                    importe_neto_idx = header_map[required_cols.index('IMPORTE NETO')]
+                    filtered_data = []
                     
-                    # Guardar info del archivo
-                    file_info = {
-                        'name': file.filename,
-                        'formato_mes_anio': formato_mes_anio['encontrado'],
-                        'mes': formato_mes_anio.get('mes'),
-                        'anio': formato_mes_anio.get('anio'),
-                        'rows': len(df_filtered)
-                    }
-                    files_info['visa'].extend([file_info] * len(df_filtered))
-                    processed_count += len(df_filtered)
-                    print(f"✅ VISA procesado: {len(df_filtered)} registros, Estado: {estado_inicial}")
+                    for row in raw_data:
+                        importe_neto = convert_to_number(row[importe_neto_idx])
+                        if not pd.isna(importe_neto) and importe_neto != 0:
+                            # Mapear solo las columnas requeridas
+                            mapped_row = [row[idx] for idx in header_map]
+                            filtered_data.append(mapped_row)
+                    
+                    if filtered_data:
+                        # Crear DataFrame con solo las columnas requeridas + ESTADO + #REF
+                        estado_inicial = 'Pendiente MA' if formato_mes_anio['encontrado'] else 'Pendiente'
+                        final_data = []
+                        for row in filtered_data:
+                            final_row = row + [estado_inicial, '']
+                            final_data.append(final_row)
+                        
+                        # Crear DataFrame final con headers correctos
+                        final_headers = required_cols + ['ESTADO', '#REF']
+                        df_final = pd.DataFrame(final_data, columns=final_headers)
+                        visa_data.append(df_final)
+                        
+                        # Guardar info del archivo
+                        file_info = {
+                            'name': file.filename,
+                            'formato_mes_anio': formato_mes_anio['encontrado'],
+                            'mes': formato_mes_anio.get('mes'),
+                            'anio': formato_mes_anio.get('anio'),
+                            'rows': len(final_data)
+                        }
+                        files_info['visa'].extend([file_info] * len(final_data))
+                        processed_count += len(final_data)
+                        print(f"✅ VISA procesado: {len(final_data)} registros, Estado: {estado_inicial}")
+                    else:
+                        print(f"⚠️ VISA - No hay registros válidos en {file.filename}")
                 else:
                     print(f"❌ VISA - Faltan columnas: {missing_cols}")
                     
             elif file_type == 'payu':
                 required_cols = ['FECHA', 'DOCUMENTO', 'DESCRIPCION', 'CREDITOS', 'DEBITOS', 'NUEVO SALDO', 'SALDO CONGELADO ANTERIOR', 'SALDO RESERVA', 'SALDO DISPONIBLE']
-                if all(col in df.columns for col in required_cols):
-                    # Filtrar solo PAYMENT_ORDER
-                    df = df[
-                        (df['DESCRIPCION'].str.upper() == 'PAYMENT_ORDER [PAYMENT_ORDER]') &
-                        (pd.to_numeric(df['DEBITOS'], errors='coerce') != 0)
-                    ]
+                print(f"📄 PAYU - Archivo: {file.filename}")
+                print(f"📄 PAYU - Columnas disponibles: {list(df.columns)}")
+                print(f"📄 PAYU - Formato MA detectado: {formato_mes_anio}")
+                
+                # Mapear columnas usando índices como en el original
+                header_map = []
+                missing_cols = []
+                for col in required_cols:
+                    found_index = -1
+                    for i, df_col in enumerate(df.columns):
+                        if col.upper() == str(df_col).upper():
+                            found_index = i
+                            break
+                    if found_index == -1:
+                        missing_cols.append(col)
+                    else:
+                        header_map.append(found_index)
+                
+                if not missing_cols:
+                    # Filtrar datos usando índices
+                    raw_data = df.values
+                    descripcion_idx = header_map[required_cols.index('DESCRIPCION')]
+                    debitos_idx = header_map[required_cols.index('DEBITOS')]
+                    documento_idx = header_map[required_cols.index('DOCUMENTO')]
                     
-                    # Eliminar duplicados por DOCUMENTO y DEBITOS
-                    df = df.drop_duplicates(subset=['DOCUMENTO', 'DEBITOS'])
+                    # Filtrar solo PAYMENT_ORDER con débitos válidos
+                    filtered_data = []
+                    seen_combinations = set()
                     
-                    estado_inicial = 'Pendiente MA' if formato_mes_anio['encontrado'] else 'Pendiente'
-                    df['ESTADO'] = estado_inicial
-                    df['#REF'] = ''
-                    payu_data.append(df)
+                    for row in raw_data:
+                        descripcion = str(row[descripcion_idx]).upper() if row[descripcion_idx] else ''
+                        debitos = convert_to_number(row[debitos_idx])
+                        documento = str(row[documento_idx]) if row[documento_idx] else ''
+                        
+                        if (descripcion == 'PAYMENT_ORDER [PAYMENT_ORDER]' and 
+                            not pd.isna(debitos) and debitos != 0):
+                            
+                            # Eliminar duplicados por DOCUMENTO + DEBITOS
+                            combination_key = f"{documento}_{debitos:.2f}"
+                            if combination_key not in seen_combinations:
+                                seen_combinations.add(combination_key)
+                                # Mapear solo las columnas requeridas
+                                mapped_row = [row[idx] for idx in header_map]
+                                filtered_data.append(mapped_row)
                     
-                    # Guardar info del archivo
-                    file_info = {
-                        'name': file.filename,
-                        'formato_mes_anio': formato_mes_anio['encontrado'],
-                        'mes': formato_mes_anio.get('mes'),
-                        'anio': formato_mes_anio.get('anio'),
-                        'rows': len(df)
-                    }
-                    files_info['payu'].extend([file_info] * len(df))
-                    processed_count += len(df)
+                    if filtered_data:
+                        # Crear DataFrame con solo las columnas requeridas + ESTADO + #REF
+                        estado_inicial = 'Pendiente MA' if formato_mes_anio['encontrado'] else 'Pendiente'
+                        final_data = []
+                        for row in filtered_data:
+                            final_row = row + [estado_inicial, '']
+                            final_data.append(final_row)
+                        
+                        # Crear DataFrame final con headers correctos
+                        final_headers = required_cols + ['ESTADO', '#REF']
+                        df_final = pd.DataFrame(final_data, columns=final_headers)
+                        payu_data.append(df_final)
+                        
+                        # Guardar info del archivo
+                        file_info = {
+                            'name': file.filename,
+                            'formato_mes_anio': formato_mes_anio['encontrado'],
+                            'mes': formato_mes_anio.get('mes'),
+                            'anio': formato_mes_anio.get('anio'),
+                            'rows': len(final_data)
+                        }
+                        files_info['payu'].extend([file_info] * len(final_data))
+                        processed_count += len(final_data)
+                        print(f"✅ PAYU procesado: {len(final_data)} registros, Estado: {estado_inicial}")
+                    else:
+                        print(f"⚠️ PAYU - No hay registros PAYMENT_ORDER válidos en {file.filename}")
+                else:
+                    print(f"❌ PAYU - Faltan columnas: {missing_cols}")
                     
         except Exception as e:
             print(f"❌ Error procesando {file_type}: {e}")
@@ -627,9 +719,10 @@ async def reconcile():
                             ws.write(row_idx, col_idx, formatted_value)
                 
                 # Agregar filtro automático
-                ws.autofilter(0, 0, len(data), len(data.columns) - 1)
+                if len(data) > 0:
+                    ws.autofilter(0, 0, len(data), len(data.columns) - 1)
                 
-                # Fijar primera fila (headers)
+                # Fijar primera fila (headers) - CRÍTICO: debe ir después de escribir datos
                 ws.freeze_panes(1, 0)
                 
                 # Ajustar ancho de columnas
