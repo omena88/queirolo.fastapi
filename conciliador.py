@@ -234,19 +234,25 @@ async def upload_files(file_type: str, files: List[UploadFile] = File(...)):
                 print(f"📄 DINERS - Columnas disponibles: {list(df.columns)}")
                 print(f"📄 DINERS - Formato MA detectado: {formato_mes_anio}")
                 
-                # Mapear columnas usando índices como en el original
+                # Mapear columnas usando índices como en el original (búsqueda flexible para acentos)
                 header_map = []
                 missing_cols = []
                 for col in required_cols:
                     found_index = -1
                     for i, df_col in enumerate(df.columns):
-                        if col.upper() == str(df_col).upper():
+                        # Normalizar ambos strings: quitar acentos, espacios y convertir a mayúsculas
+                        col_normalized = col.upper().replace('Ó', 'O').replace('É', 'E').replace('Í', 'I').replace('Á', 'A').replace('Ú', 'U').strip()
+                        df_col_normalized = str(df_col).upper().replace('Ó', 'O').replace('É', 'E').replace('Í', 'I').replace('Á', 'A').replace('Ú', 'U').strip()
+                        if col_normalized == df_col_normalized:
                             found_index = i
                             break
                     if found_index == -1:
                         missing_cols.append(col)
                     else:
                         header_map.append(found_index)
+                
+                print(f"📄 DINERS - Header map: {header_map}")
+                print(f"📄 DINERS - Missing cols: {missing_cols}")
                 
                 if not missing_cols:
                     # Filtrar filas que tienen datos en al menos una columna requerida (como en el original)
