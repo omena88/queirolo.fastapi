@@ -172,39 +172,59 @@ async def upload_files(file_type: str, files: List[UploadFile] = File(...)):
                 print(f"📄 AMEX - Columnas disponibles: {list(df.columns)}")
                 print(f"📄 AMEX - Formato MA detectado: {formato_mes_anio}")
                 
-                # Verificar columnas con flexibilidad
+                # Mapear columnas usando índices como en el original
+                header_map = []
                 missing_cols = []
                 for col in required_cols:
-                    if col not in df.columns:
-                        # Buscar columnas similares
-                        found = False
-                        for df_col in df.columns:
-                            if col.upper() in str(df_col).upper():
-                                df = df.rename(columns={df_col: col})
-                                found = True
-                                break
-                        if not found:
-                            missing_cols.append(col)
+                    found_index = -1
+                    for i, df_col in enumerate(df.columns):
+                        if col.upper() == str(df_col).upper():
+                            found_index = i
+                            break
+                    if found_index == -1:
+                        missing_cols.append(col)
+                    else:
+                        header_map.append(found_index)
                 
                 if not missing_cols:
-                    # Filtrar por NETO_TOTAL != 0
-                    df_filtered = df[pd.to_numeric(df['NETO_TOTAL'], errors='coerce') != 0].copy()
-                    estado_inicial = 'Pendiente MA' if formato_mes_anio['encontrado'] else 'Pendiente'
-                    df_filtered['ESTADO'] = estado_inicial
-                    df_filtered['#REF'] = ''
-                    amex_data.append(df_filtered)
+                    # Mapear datos usando índices y filtrar por NETO_TOTAL != 0
+                    raw_data = df.values
+                    neto_total_idx = header_map[required_cols.index('NETO_TOTAL')]
+                    filtered_data = []
                     
-                    # Guardar info del archivo
-                    file_info = {
-                        'name': file.filename,
-                        'formato_mes_anio': formato_mes_anio['encontrado'],
-                        'mes': formato_mes_anio.get('mes'),
-                        'anio': formato_mes_anio.get('anio'),
-                        'rows': len(df_filtered)
-                    }
-                    files_info['amex'].extend([file_info] * len(df_filtered))
-                    processed_count += len(df_filtered)
-                    print(f"✅ AMEX procesado: {len(df_filtered)} registros, Estado: {estado_inicial}")
+                    for row in raw_data:
+                        neto_total = convert_to_number(row[neto_total_idx])
+                        if not pd.isna(neto_total) and neto_total != 0:
+                            # Mapear solo las columnas requeridas
+                            mapped_row = [row[idx] for idx in header_map]
+                            filtered_data.append(mapped_row)
+                    
+                    if filtered_data:
+                        # Crear DataFrame con solo las columnas requeridas + ESTADO + #REF
+                        estado_inicial = 'Pendiente MA' if formato_mes_anio['encontrado'] else 'Pendiente'
+                        final_data = []
+                        for row in filtered_data:
+                            final_row = row + [estado_inicial, '']
+                            final_data.append(final_row)
+                        
+                        # Crear DataFrame final con headers correctos
+                        final_headers = required_cols + ['ESTADO', '#REF']
+                        df_final = pd.DataFrame(final_data, columns=final_headers)
+                        amex_data.append(df_final)
+                        
+                        # Guardar info del archivo
+                        file_info = {
+                            'name': file.filename,
+                            'formato_mes_anio': formato_mes_anio['encontrado'],
+                            'mes': formato_mes_anio.get('mes'),
+                            'anio': formato_mes_anio.get('anio'),
+                            'rows': len(final_data)
+                        }
+                        files_info['amex'].extend([file_info] * len(final_data))
+                        processed_count += len(final_data)
+                        print(f"✅ AMEX procesado: {len(final_data)} registros, Estado: {estado_inicial}")
+                    else:
+                        print(f"⚠️ AMEX - No hay registros válidos en {file.filename}")
                 else:
                     print(f"❌ AMEX - Faltan columnas: {missing_cols}")
                     
@@ -214,39 +234,57 @@ async def upload_files(file_type: str, files: List[UploadFile] = File(...)):
                 print(f"📄 DINERS - Columnas disponibles: {list(df.columns)}")
                 print(f"📄 DINERS - Formato MA detectado: {formato_mes_anio}")
                 
-                # Verificar columnas con flexibilidad
+                # Mapear columnas usando índices como en el original
+                header_map = []
                 missing_cols = []
                 for col in required_cols:
-                    if col not in df.columns:
-                        # Buscar columnas similares
-                        found = False
-                        for df_col in df.columns:
-                            if col.replace('Ó', 'O').upper() in str(df_col).replace('Ó', 'O').upper():
-                                df = df.rename(columns={df_col: col})
-                                found = True
-                                break
-                        if not found:
-                            missing_cols.append(col)
+                    found_index = -1
+                    for i, df_col in enumerate(df.columns):
+                        if col.upper() == str(df_col).upper():
+                            found_index = i
+                            break
+                    if found_index == -1:
+                        missing_cols.append(col)
+                    else:
+                        header_map.append(found_index)
                 
                 if not missing_cols:
-                    # Filtrar filas válidas
-                    df_filtered = df.dropna(subset=['ORDEN DE PAGO', 'FECHA DE PAGO', 'IMPORTE NETO DE PAGO']).copy()
-                    estado_inicial = 'Pendiente MA' if formato_mes_anio['encontrado'] else 'Pendiente'
-                    df_filtered['ESTADO'] = estado_inicial
-                    df_filtered['#REF'] = ''
-                    diners_data.append(df_filtered)
+                    # Filtrar filas que tienen datos en al menos una columna requerida (como en el original)
+                    raw_data = df.values
+                    filtered_data = []
                     
-                    # Guardar info del archivo
-                    file_info = {
-                        'name': file.filename,
-                        'formato_mes_anio': formato_mes_anio['encontrado'],
-                        'mes': formato_mes_anio.get('mes'),
-                        'anio': formato_mes_anio.get('anio'),
-                        'rows': len(df_filtered)
-                    }
-                    files_info['diners'].extend([file_info] * len(df_filtered))
-                    processed_count += len(df_filtered)
-                    print(f"✅ DINERS procesado: {len(df_filtered)} registros, Estado: {estado_inicial}")
+                    for row in raw_data:
+                        if any(row[idx] is not None and row[idx] != '' and str(row[idx]).strip() != '' for idx in header_map):
+                            # Mapear solo las columnas requeridas
+                            mapped_row = [row[idx] for idx in header_map]
+                            filtered_data.append(mapped_row)
+                    
+                    if filtered_data:
+                        # Crear DataFrame con solo las columnas requeridas + ESTADO + #REF
+                        estado_inicial = 'Pendiente MA' if formato_mes_anio['encontrado'] else 'Pendiente'
+                        final_data = []
+                        for row in filtered_data:
+                            final_row = row + [estado_inicial, '']
+                            final_data.append(final_row)
+                        
+                        # Crear DataFrame final con headers correctos
+                        final_headers = required_cols + ['ESTADO', '#REF']
+                        df_final = pd.DataFrame(final_data, columns=final_headers)
+                        diners_data.append(df_final)
+                        
+                        # Guardar info del archivo
+                        file_info = {
+                            'name': file.filename,
+                            'formato_mes_anio': formato_mes_anio['encontrado'],
+                            'mes': formato_mes_anio.get('mes'),
+                            'anio': formato_mes_anio.get('anio'),
+                            'rows': len(final_data)
+                        }
+                        files_info['diners'].extend([file_info] * len(final_data))
+                        processed_count += len(final_data)
+                        print(f"✅ DINERS procesado: {len(final_data)} registros, Estado: {estado_inicial}")
+                    else:
+                        print(f"⚠️ DINERS - No hay filas válidas en {file.filename}")
                 else:
                     print(f"❌ DINERS - Faltan columnas: {missing_cols}")
                     
@@ -525,10 +563,27 @@ async def reconcile():
         # Crear Excel con formato
         workbook = xlsxwriter.Workbook(output_path)
         
-        # Formato para headers
+        # Formatos mejorados
         header_format = workbook.add_format({
             'bold': True,
             'bg_color': '#D7E4BC',
+            'border': 1,
+            'text_wrap': True,
+            'valign': 'top'
+        })
+        
+        pending_format = workbook.add_format({
+            'bg_color': '#FFE6E6',
+            'border': 1
+        })
+        
+        conciliated_format = workbook.add_format({
+            'bg_color': '#E6FFE6',
+            'border': 1
+        })
+        
+        ma_format = workbook.add_format({
+            'bg_color': '#FFF2CC',
             'border': 1
         })
         
@@ -550,13 +605,38 @@ async def reconcile():
                 for col, header in enumerate(data.columns):
                     ws.write(0, col, header, header_format)
                 
-                # Escribir datos
+                # Escribir datos con formato condicional
                 for row_idx, (_, data_row) in enumerate(data.iterrows(), 1):
+                    # Determinar formato de fila basado en ESTADO
+                    row_format = None
+                    if 'ESTADO' in data.columns:
+                        estado_value = str(data_row['ESTADO'])
+                        if 'Pendiente' in estado_value and 'MA' not in estado_value:
+                            row_format = pending_format
+                        elif 'Conciliado' in estado_value or 'CONCILIADO' in estado_value:
+                            row_format = conciliated_format
+                        elif 'MA' in estado_value:
+                            row_format = ma_format
+                    
+                    # Escribir datos de la fila
                     for col_idx, value in enumerate(data_row):
-                        ws.write(row_idx, col_idx, str(value) if pd.notna(value) else '')
+                        formatted_value = str(value) if pd.notna(value) else ''
+                        if row_format:
+                            ws.write(row_idx, col_idx, formatted_value, row_format)
+                        else:
+                            ws.write(row_idx, col_idx, formatted_value)
                 
                 # Agregar filtro automático
                 ws.autofilter(0, 0, len(data), len(data.columns) - 1)
+                
+                # Fijar primera fila (headers)
+                ws.freeze_panes(1, 0)
+                
+                # Ajustar ancho de columnas
+                for col_idx, header in enumerate(data.columns):
+                    max_length = max(len(str(header)), 
+                                   data.iloc[:, col_idx].astype(str).str.len().max() if len(data) > 0 else 0)
+                    ws.set_column(col_idx, col_idx, min(max_length + 2, 50))
         
         workbook.close()
         
