@@ -937,17 +937,20 @@ def perform_reconciliation_multi_step(extracto_df, amex_df, diners_df, mc_df, vi
                 
             orden_pago = str(diners_row['ORDEN DE PAGO']).strip()
             if len(orden_pago) >= 10:
-                last10 = orden_pago[-10:]
-                fecha_pago = parse_date(diners_row['FECHA DE PAGO'])
+                first10 = orden_pago[:10]  # CORREGIDO: primeros 10 como en HTML
+            else:
+                first10 = orden_pago
                 
-                if fecha_pago:
-                    fecha_key = fecha_pago.strftime('%Y-%m-%d')
-                    group_key = f"{last10}_{fecha_key}"
-                    
-                    if group_key not in diners_groups:
-                        diners_groups[group_key] = []
-                    
-                    diners_groups[group_key].append({
+            fecha_pago = parse_date(diners_row['FECHA DE PAGO'])
+            
+            if fecha_pago:
+                fecha_key = fecha_pago.strftime('%Y-%m-%d')
+                group_key = f"{first10}_{fecha_key}"
+                
+                if group_key not in diners_groups:
+                    diners_groups[group_key] = []
+                
+                diners_groups[group_key].append({
                         'idx': idx,
                         'row': diners_row,
                         'monto': convert_to_number(diners_row['IMPORTE NETO DE PAGO'])
@@ -970,19 +973,23 @@ def perform_reconciliation_multi_step(extracto_df, amex_df, diners_df, mc_df, vi
                         total_grupo = sum(item['monto'] for item in group_items if not np.isnan(item['monto']))
                         
                         if abs(monto_ext - total_grupo) < 0.01:
+                            # Obtener orden de pago del group_key
+                            orden_pago = group_key.split('_')[0]
+                            
                             # Conciliar
                             es_ma = any(item['row']['ESTADO'] == 'Pendiente MA' for item in group_items)
                             etiqueta = 'MA-' if es_ma else ''
                             
                             extracto_df.at[idx, 'ESTADO'] = f'{etiqueta}P3-F1-Conciliado'
-                            extracto_df.at[idx, '#REF'] = f'{etiqueta}DINERS - {fecha_ext_key}'
+                            extracto_df.at[idx, '#REF'] = f'{etiqueta}{orden_pago} - {fecha_ext_key}'
                             
                             for item in group_items:
                                 diners_df.at[item['idx'], 'ESTADO'] = f'{etiqueta}P3-F1-Conciliado'
-                                diners_df.at[item['idx'], '#REF'] = f'{etiqueta}{ext_row["OPERACIÓN - NÚMERO"]} - {fecha_ext_key}'
+                                diners_df.at[item['idx'], '#REF'] = f'{etiqueta}{ext_row["OPERACIÓN - NÚMERO"]} - {orden_pago} - {fecha_ext_key}'
                             
                             del diners_groups[group_key]
                             stats['diners_f1'] += 1
+                            print(f"🏦 ✅ [EXTRACTO {idx}] P3-F1 - CONCILIADO con DINERS | Fecha: {fecha_ext_key} | Monto: {total_grupo} | Orden: {orden_pago}")
                             break
         
         # Fase 2: Monto + 2.07
