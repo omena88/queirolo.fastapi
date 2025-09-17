@@ -295,19 +295,19 @@ async def upload_files(file_type: str, files: List[UploadFile] = File(...)):
                 print(f"📄 MC - Columnas disponibles: {list(df.columns)}")
                 print(f"📄 MC - Formato MA detectado: {formato_mes_anio}")
                 
-                # Verificar columnas con flexibilidad
+                # Mapear columnas usando índices como en el original
+                header_map = []
                 missing_cols = []
                 for col in required_cols:
-                    if col not in df.columns:
-                        # Buscar columnas similares
-                        found = False
-                        for df_col in df.columns:
-                            if col.upper() in str(df_col).upper():
-                                df = df.rename(columns={df_col: col})
-                                found = True
-                                break
-                        if not found:
-                            missing_cols.append(col)
+                    found_index = -1
+                    for i, df_col in enumerate(df.columns):
+                        if col.upper() == str(df_col).upper():
+                            found_index = i
+                            break
+                    if found_index == -1:
+                        missing_cols.append(col)
+                    else:
+                        header_map.append(found_index)
                 
                 if not missing_cols:
                     # Extraer CODCOM del nombre del archivo
