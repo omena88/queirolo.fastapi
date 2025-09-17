@@ -1051,11 +1051,38 @@ def perform_reconciliation_multi_step(extracto_df, amex_df, diners_df, mc_df, vi
                         stats['diners_f3'] += 1
                         break
     
-    # PASO 3: Conciliación MC (3 fases)
+    # PASO 3: Conciliación MC (3 fases) - EXACTO AL HTML
     if not mc_df.empty:
         print("💳 PASO 3: Conciliando MC")
         
-        # Fase 1: Por CODCOM + MONTO
+        # Construir mapa MC EXACTAMENTE como el HTML - línea por línea
+        mc_commerce_map = {}
+        
+        for mc_idx, mc_row in mc_df.iterrows():
+            if not mc_row['ESTADO'].startswith('Pendiente'):
+                continue
+                
+            codcom = str(mc_row['CODCOM']).strip()
+            monto_raw = mc_row['NETO_TOTAL']
+            monto = convert_to_number(monto_raw)
+            
+            if codcom and not np.isnan(monto) and monto != 0:
+                if codcom not in mc_commerce_map:
+                    mc_commerce_map[codcom] = []
+                
+                # Obtener información del archivo
+                es_archivo_ma = mc_row['ESTADO'] == 'Pendiente MA'
+                
+                mc_commerce_map[codcom].append({
+                    'row': mc_row,
+                    'index': mc_idx,
+                    'monto': float(f"{monto:.2f}"),
+                    'formato_mes_anio': es_archivo_ma
+                })
+        
+        print(f"💳 [MC] Mapa de comercios creado con {len(mc_commerce_map)} comercios (línea por línea)")
+        
+        # FASE 1: Conciliación por CODCOM + MONTO (línea por línea) - EXACTO AL HTML
         for idx, ext_row in extracto_df.iterrows():
             if not ext_row['ESTADO'].startswith('Pendiente'):
                 continue
@@ -1064,31 +1091,68 @@ def perform_reconciliation_multi_step(extracto_df, amex_df, diners_df, mc_df, vi
             monto_ext = convert_to_number(ext_row['MONTO'])
             
             if referencia2 and not np.isnan(monto_ext):
-                # Extraer código de comercio (9 dígitos, tomar últimos 7)
+                # Extraer los 9 dígitos y tomar los últimos 7 - EXACTO AL HTML
                 match = re.search(r'(\d{9})', referencia2)
                 if match:
                     full_code = match.group(1)
-                    codcom_key = full_code[-7:]
+                    codcom_key = full_code[-7:]  # slice(-7) en JS = últimos 7
                     
-                    # Buscar en MC
-                    for mc_idx, mc_row in mc_df.iterrows():
-                        if (not mc_row['ESTADO'].startswith('Pendiente') or 
-                            mc_row['CODCOM'] != codcom_key):
-                            continue
-                            
-                        monto_mc = convert_to_number(mc_row['NETO_TOTAL'])
+                    print(f"💳 [PASO 4-F1] Extracto {idx}: REFERENCIA2=\"{referencia2}\" → codcomKey=\"{codcom_key}\" | Monto: {monto_ext}")
+                    
+                    if codcom_key in mc_commerce_map:
+                        potential_matches = mc_commerce_map[codcom_key]
+                        print(f"💳 [PASO 4-F1] Encontrado comercio {codcom_key} con {len(potential_matches)} registros")
+                        print(f"💳 [PASO 4-F1] Montos disponibles para {codcom_key}: {[m['monto'] for m in potential_matches]}")
                         
-                        if not np.isnan(monto_mc) and abs(monto_ext - monto_mc) < 0.01:
-                            # Conciliar
-                            etiqueta = 'MA-' if mc_row['ESTADO'] == 'Pendiente MA' else ''
+                        # Buscar coincidencia exacta de monto
+                        match_index = -1
+                        for i, match_data in enumerate(potential_matches):
+                            if abs(monto_ext - match_data['monto']) < 0.01:
+                                match_index = i
+                                break
+                        
+                        if match_index != -1:
+                            mc_record = potential_matches[match_index]
+                            op_num = ext_row['OPERACIÓN - NÚMERO']
+                            fecha_proceso = parse_date(ext_row['FECHA'])
+                            fecha_proceso_str = fecha_proceso.strftime('%d/%m/%Y') if fecha_proceso else 'N/A'
+                            
+                            # Verificar si el registro MC tiene estado 'Pendiente MA'
+                            es_archivo_ma = mc_record['formato_mes_anio']
+                            etiqueta = 'MA-' if es_archivo_ma else ''
+                            
+                            # Marcar extracto como conciliado
                             extracto_df.at[idx, 'ESTADO'] = f'{etiqueta}P4-F1-Conciliado'
-                            extracto_df.at[idx, '#REF'] = f'{etiqueta}MC-{codcom_key}'
+                            extracto_df.at[idx, '#REF'] = f'{etiqueta}MC-{codcom_key} - {fecha_proceso_str}'
+                            
+                            # Marcar MC como conciliado
+                            mc_idx = mc_record['index']
                             mc_df.at[mc_idx, 'ESTADO'] = f'{etiqueta}P4-F1-Conciliado'
-                            mc_df.at[mc_idx, '#REF'] = f'{etiqueta}{ext_row["OPERACIÓN - NÚMERO"]}'
+                            mc_df.at[mc_idx, '#REF'] = f'{etiqueta}{op_num} - {fecha_proceso_str}'
+                            
                             stats['mc_f1'] += 1
-                            break
+                            print(f"💳 ✅ [PASO 4-F1] CONCILIADO: Extracto {idx} con MC registro | Monto: {monto_ext}")
+                            
+                            # Eliminar el registro para no reutilizarlo
+                            potential_matches.pop(match_index)
+                        else:
+                            print(f"💳 ❌ [PASO 4-F1] NO MATCH: Comercio {codcom_key} encontrado pero sin coincidencia de monto {monto_ext}")
+                    else:
+                        print(f"💳 ❌ [PASO 4-F1] NO FOUND: Comercio {codcom_key} no existe en mcCommerceMap")
         
-        # Fase 2: Solo por monto
+        # FASE 2: Conciliación solo por MONTO (como AMEX Fase 3) - EXACTO AL HTML
+        print("💳 [PASO 4 - FASE 2] Conciliando MC (solo MONTO)")
+        mc_monto_map = {}
+        
+        # Crear mapa de montos MC pendientes
+        for comercio, registros in mc_commerce_map.items():
+            for registro in registros:
+                if registro['row']['ESTADO'].startswith('Pendiente'):
+                    monto_key = f"{registro['monto']:.2f}"
+                    if monto_key not in mc_monto_map:
+                        mc_monto_map[monto_key] = []
+                    mc_monto_map[monto_key].append(registro)
+        
         for idx, ext_row in extracto_df.iterrows():
             if not ext_row['ESTADO'].startswith('Pendiente'):
                 continue
@@ -1096,22 +1160,32 @@ def perform_reconciliation_multi_step(extracto_df, amex_df, diners_df, mc_df, vi
             monto_ext = convert_to_number(ext_row['MONTO'])
             
             if not np.isnan(monto_ext):
-                # Buscar en MC pendientes
-                for mc_idx, mc_row in mc_df.iterrows():
-                    if not mc_row['ESTADO'].startswith('Pendiente'):
-                        continue
-                        
-                    monto_mc = convert_to_number(mc_row['NETO_TOTAL'])
+                monto_key = f"{monto_ext:.2f}"
+                
+                if monto_key in mc_monto_map and len(mc_monto_map[monto_key]) > 0:
+                    matches = mc_monto_map[monto_key]
+                    mc_record = matches.pop(0)  # Tomar el primer match
                     
-                    if not np.isnan(monto_mc) and abs(monto_ext - monto_mc) < 0.01:
-                        # Conciliar
-                        etiqueta = 'MA-' if mc_row['ESTADO'] == 'Pendiente MA' else ''
-                        extracto_df.at[idx, 'ESTADO'] = f'{etiqueta}P4-F2-Conciliado'
-                        extracto_df.at[idx, '#REF'] = f'{etiqueta}MC-Monto: {monto_ext:.2f}'
-                        mc_df.at[mc_idx, 'ESTADO'] = f'{etiqueta}P4-F2-Conciliado'
-                        mc_df.at[mc_idx, '#REF'] = f'{etiqueta}{ext_row["OPERACIÓN - NÚMERO"]}'
-                        stats['mc_f2'] += 1
-                        break
+                    op_num = ext_row['OPERACIÓN - NÚMERO']
+                    
+                    # Verificar si el registro MC tiene estado 'Pendiente MA'
+                    es_archivo_ma = mc_record['formato_mes_anio']
+                    etiqueta = 'MA-' if es_archivo_ma else ''
+                    
+                    # Marcar extracto como conciliado
+                    extracto_df.at[idx, 'ESTADO'] = f'{etiqueta}P4-F2-Conciliado'
+                    extracto_df.at[idx, '#REF'] = f'{etiqueta}MC - Monto: {monto_key}'
+                    
+                    # Marcar MC como conciliado
+                    mc_idx = mc_record['index']
+                    mc_df.at[mc_idx, 'ESTADO'] = f'{etiqueta}P4-F2-Conciliado'
+                    mc_df.at[mc_idx, '#REF'] = f'{etiqueta}{op_num} - Monto: {monto_key}'
+                    
+                    stats['mc_f2'] += 1
+                    print(f"💳 ✅ [PASO 4-F2] CONCILIADO: Extracto {idx} con MC por monto | Monto: {monto_ext}")
+                    
+                    if len(matches) == 0:
+                        del mc_monto_map[monto_key]
         
         # Fase 3: Agrupación por fecha del extracto vs MC pendientes
         extracto_fecha_groups = {}
@@ -1173,31 +1247,56 @@ def perform_reconciliation_multi_step(extracto_df, amex_df, diners_df, mc_df, vi
                 
                 stats['mc_f3'] += len(fecha_group['items'])
     
-    # PASO 4: Conciliación VISA (2 fases)
+    # PASO 4: Conciliación VISA (2 fases) - EXACTO AL HTML
     if not visa_df.empty:
         print("🏦 PASO 4: Conciliando VISA")
         
-        # Primero, agrupar VISA por comercio y fecha proceso
-        visa_groups = {}
-        for visa_idx, visa_row in visa_df.iterrows():
-            if not visa_row['ESTADO'].startswith('Pendiente'):
-                continue
-                
-            comercio = str(visa_row.get('COMERCIO/CADENA', '')).strip()
-            fecha_proceso = parse_date(visa_row['FECHA PROCESO'])
-            monto_visa = convert_to_number(visa_row['IMPORTE NETO'])
-            
-            if comercio and fecha_proceso and not np.isnan(monto_visa):
-                fecha_key = fecha_proceso.strftime('%Y-%m-%d')
-                group_key = f"{comercio}_{fecha_key}"
-                
-                if group_key not in visa_groups:
-                    visa_groups[group_key] = {'total': 0, 'items': [], 'comercio': comercio, 'fecha': fecha_key}
-                
-                visa_groups[group_key]['total'] += monto_visa
-                visa_groups[group_key]['items'].append({'idx': visa_idx, 'row': visa_row})
+        # Construir mapa VISA EXACTAMENTE como el HTML - AGRUPAR POR FECHA PROCESO Y TOTALIZAR POR COMERCIO
+        visa_commerce_map = {}
         
-        # Fase 1: Línea de extracto vs Grupos totalizados de VISA
+        # 1. Agrupar por FECHA PROCESO
+        visa_fecha_groups = {}
+        for visa_idx, visa_row in visa_df.iterrows():
+            comercio = str(visa_row.get('COMERCIO/CADENA', '')).strip()
+            fecha_proceso_raw = visa_row['FECHA PROCESO']
+            monto_raw = visa_row['IMPORTE NETO']
+            
+            fecha_proceso = parse_date(fecha_proceso_raw)
+            monto = convert_to_number(monto_raw)
+            
+            if comercio and fecha_proceso and not np.isnan(monto):
+                fecha_key = fecha_proceso.strftime('%Y-%m-%d')
+                
+                if fecha_key not in visa_fecha_groups:
+                    visa_fecha_groups[fecha_key] = {}
+                
+                if comercio not in visa_fecha_groups[fecha_key]:
+                    visa_fecha_groups[fecha_key][comercio] = {'total': 0, 'items': []}
+                
+                visa_fecha_groups[fecha_key][comercio]['total'] += monto
+                visa_fecha_groups[fecha_key][comercio]['items'].append({'row': visa_row, 'index': visa_idx})
+        
+        # 2. Crear mapa final: COMERCIO -> [{ fechaProceso, total, items, formatoMesAnio }]
+        for fecha_key, fecha_group in visa_fecha_groups.items():
+            for comercio, comercio_group in fecha_group.items():
+                if comercio not in visa_commerce_map:
+                    visa_commerce_map[comercio] = []
+                
+                # Obtener información del archivo del primer item del grupo
+                first_item = comercio_group['items'][0]
+                es_archivo_ma = first_item['row']['ESTADO'] == 'Pendiente MA'
+                
+                visa_commerce_map[comercio].append({
+                    'fecha_proceso': fecha_key,
+                    'total': float(f"{comercio_group['total']:.2f}"),
+                    'items': comercio_group['items'],
+                    'formato_mes_anio': es_archivo_ma
+                })
+        
+        print(f"🏦 [VISA] Mapa de comercios creado con {len(visa_commerce_map)} comercios (agrupado por fecha y totalizado)")
+        
+        # FASE 1: Línea de extracto vs Grupos totalizados de VISA - EXACTO AL HTML
+        print("🏦 [PASO 5 - FASE 1] Extracto línea vs VISA grupos")
         for idx, ext_row in extracto_df.iterrows():
             if not ext_row['ESTADO'].startswith('Pendiente'):
                 continue
@@ -1206,33 +1305,52 @@ def perform_reconciliation_multi_step(extracto_df, amex_df, diners_df, mc_df, vi
             monto_ext = convert_to_number(ext_row['MONTO'])
             
             if referencia2 and not np.isnan(monto_ext):
-                # Extraer código de comercio
+                # Extraer los 9 dígitos y tomar los últimos 7 - EXACTO AL HTML
                 match = re.search(r'(\d{9})', referencia2)
                 if match:
                     full_code = match.group(1)
-                    codcom_key = full_code[-7:]
+                    codcom_key = full_code[-7:]  # slice(-7) en JS = últimos 7
                     
-                    # Buscar grupo VISA que coincida con el comercio y monto
-                    for group_key, visa_group in list(visa_groups.items()):
-                        if (codcom_key in visa_group['comercio'] and 
-                            abs(monto_ext - visa_group['total']) < 0.01):
+                    print(f"🏦 [PASO 5 F1] Extracto {idx}: REFERENCIA2=\"{referencia2}\" → codcomKey=\"{codcom_key}\" | Monto: {monto_ext}")
+                    
+                    if codcom_key in visa_commerce_map:
+                        grupos_visa = visa_commerce_map[codcom_key]
+                        
+                        # Buscar grupo VISA que coincida con el monto del extracto
+                        match_index = -1
+                        for i, grupo in enumerate(grupos_visa):
+                            if abs(monto_ext - grupo['total']) < 0.01:
+                                match_index = i
+                                break
+                        
+                        if match_index != -1:
+                            grupo_visa = grupos_visa[match_index]
+                            op_num = ext_row['OPERACIÓN - NÚMERO']
+                            fecha_proceso = parse_date(ext_row['FECHA'])
+                            fecha_proceso_str = fecha_proceso.strftime('%d/%m/%Y') if fecha_proceso else 'N/A'
                             
                             # Verificar si algún registro VISA del grupo tiene estado 'Pendiente MA'
-                            es_ma = any(item['row']['ESTADO'] == 'Pendiente MA' for item in visa_group['items'])
-                            etiqueta = 'MA-' if es_ma else ''
+                            es_archivo_ma = any(item['row']['ESTADO'] == 'Pendiente MA' for item in grupo_visa['items'])
+                            etiqueta = 'MA-' if es_archivo_ma else ''
                             
-                            # Conciliar extracto
+                            # Marcar extracto como conciliado F1
                             extracto_df.at[idx, 'ESTADO'] = f'{etiqueta}P5-F1-Conciliado'
-                            extracto_df.at[idx, '#REF'] = f'{etiqueta}VISA-{codcom_key} - {visa_group["fecha"]}'
+                            extracto_df.at[idx, '#REF'] = f'{etiqueta}VISA-{codcom_key} - {fecha_proceso_str}'
                             
-                            # Conciliar todos los registros VISA del grupo
-                            for item in visa_group['items']:
-                                visa_df.at[item['idx'], 'ESTADO'] = f'{etiqueta}P5-F1-Conciliado'
-                                visa_df.at[item['idx'], '#REF'] = f'{etiqueta}{ext_row["OPERACIÓN - NÚMERO"]} - {visa_group["fecha"]}'
+                            # Marcar todos los registros VISA del grupo como conciliados F1
+                            for item in grupo_visa['items']:
+                                visa_idx = item['index']
+                                visa_df.at[visa_idx, 'ESTADO'] = f'{etiqueta}P5-F1-Conciliado'
+                                visa_df.at[visa_idx, '#REF'] = f'{etiqueta}{op_num} - {fecha_proceso_str}'
                             
-                            del visa_groups[group_key]
                             stats['visa_f1'] += 1
-                            break
+                            print(f"🏦 ✅ [PASO 5 F1] CONCILIADO: Extracto {idx} con VISA grupo | Monto: {monto_ext}")
+                            
+                            # Eliminar el grupo para no reutilizarlo
+                            grupos_visa.pop(match_index)
+                            
+                            if len(grupos_visa) == 0:
+                                del visa_commerce_map[codcom_key]
         
         # Fase 2: Extracto agrupado por fecha y comercio vs grupos VISA
         extracto_visa_groups = {}
