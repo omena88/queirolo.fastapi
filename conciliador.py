@@ -760,8 +760,8 @@ async def reconcile():
         raise HTTPException(status_code=500, detail=str(e))
 
 def perform_reconciliation_multi_step(extracto_df, amex_df, diners_df, mc_df, visa_df, payu_df):
-    """Realiza la conciliación multi-paso siguiendo la lógica del archivo original"""
-    print("🔄 Iniciando conciliación por pasos")
+    """Realiza la conciliación multi-paso siguiendo EXACTAMENTE la lógica del archivo original"""
+    print("🔄 INICIANDO CONCILIACIÓN MULTI-PASO")
     
     # Contadores
     stats = {
@@ -922,6 +922,35 @@ def perform_reconciliation_multi_step(extracto_df, amex_df, diners_df, mc_df, vi
                         del diners_groups[group_key]
                         stats['diners_f2'] += 1
                         break
+        
+        # Fase 3: Restar 5.90 a DINERS pendientes
+        for idx, ext_row in extracto_df.iterrows():
+            if not ext_row['ESTADO'].startswith('Pendiente'):
+                continue
+                
+            monto_ext = convert_to_number(ext_row['MONTO'])
+            
+            if not np.isnan(monto_ext):
+                # Buscar grupo DINERS que coincida restando 5.90 al total DINERS
+                for group_key, group_items in list(diners_groups.items()):
+                    total_grupo = sum(item['monto'] for item in group_items if not np.isnan(item['monto']))
+                    monto_ajustado_diners = total_grupo - 5.90
+                    
+                    if abs(monto_ext - monto_ajustado_diners) < 0.01:
+                        # Conciliar
+                        es_ma = any(item['row']['ESTADO'] == 'Pendiente MA' for item in group_items)
+                        etiqueta = 'MA-' if es_ma else ''
+                        
+                        extracto_df.at[idx, 'ESTADO'] = f'{etiqueta}P3-F3-Conciliado'
+                        extracto_df.at[idx, '#REF'] = f'{etiqueta}DINERS - Extracto: {monto_ext:.2f} = DINERS: {total_grupo:.2f} - 5.90'
+                        
+                        for item in group_items:
+                            diners_df.at[item['idx'], 'ESTADO'] = f'{etiqueta}P3-F3-Conciliado'
+                            diners_df.at[item['idx'], '#REF'] = f'{etiqueta}{ext_row["OPERACIÓN - NÚMERO"]} - Ajustado: {total_grupo:.2f} - 5.90'
+                        
+                        del diners_groups[group_key]
+                        stats['diners_f3'] += 1
+                        break
     
     # PASO 3: Conciliación MC (3 fases)
     if not mc_df.empty:
@@ -984,12 +1013,92 @@ def perform_reconciliation_multi_step(extracto_df, amex_df, diners_df, mc_df, vi
                         mc_df.at[mc_idx, '#REF'] = f'{etiqueta}{ext_row["OPERACIÓN - NÚMERO"]}'
                         stats['mc_f2'] += 1
                         break
+        
+        # Fase 3: Agrupación por fecha del extracto vs MC pendientes
+        extracto_fecha_groups = {}
+        
+        # Agrupar extracto pendiente por fecha
+        for idx, ext_row in extracto_df.iterrows():
+            if not ext_row['ESTADO'].startswith('Pendiente'):
+                continue
+                
+            fecha_ext = parse_date(ext_row['FECHA'])
+            monto_ext = convert_to_number(ext_row['MONTO'])
+            
+            if fecha_ext and not np.isnan(monto_ext):
+                fecha_key = fecha_ext.strftime('%Y-%m-%d')
+                
+                if fecha_key not in extracto_fecha_groups:
+                    extracto_fecha_groups[fecha_key] = {'total': 0, 'items': []}
+                
+                extracto_fecha_groups[fecha_key]['total'] += monto_ext
+                extracto_fecha_groups[fecha_key]['items'].append({'idx': idx, 'row': ext_row})
+        
+        # Crear lista de MC pendientes
+        mc_pendientes = []
+        for mc_idx, mc_row in mc_df.iterrows():
+            if mc_row['ESTADO'].startswith('Pendiente'):
+                monto_mc = convert_to_number(mc_row['NETO_TOTAL'])
+                if not np.isnan(monto_mc):
+                    mc_pendientes.append({
+                        'idx': mc_idx,
+                        'row': mc_row,
+                        'monto': monto_mc
+                    })
+        
+        # Conciliar totales de fecha extracto vs combinaciones MC
+        for fecha_key, fecha_group in extracto_fecha_groups.items():
+            total_extracto = fecha_group['total']
+            
+            # Buscar combinaciones de MC que sumen este total
+            mc_combination = find_combination_by_sum(mc_pendientes, total_extracto)
+            
+            if mc_combination:
+                # Verificar si algún registro MC tiene estado 'Pendiente MA'
+                es_ma = any(mc_record['row']['ESTADO'] == 'Pendiente MA' for mc_record in mc_combination)
+                etiqueta = 'MA-' if es_ma else ''
+                
+                # Marcar extracto como conciliado
+                for item in fecha_group['items']:
+                    extracto_df.at[item['idx'], 'ESTADO'] = f'{etiqueta}P4-F3-Conciliado'
+                    extracto_df.at[item['idx'], '#REF'] = f'{etiqueta}MC-Fecha: {fecha_key} - Total: {total_extracto:.2f}'
+                
+                # Marcar MC como conciliado
+                for mc_record in mc_combination:
+                    mc_etiqueta = 'MA-' if mc_record['row']['ESTADO'] == 'Pendiente MA' else ''
+                    mc_df.at[mc_record['idx'], 'ESTADO'] = f'{mc_etiqueta}P4-F3-Conciliado'
+                    mc_df.at[mc_record['idx'], '#REF'] = f'{mc_etiqueta}Extracto-Fecha: {fecha_key} - Total: {total_extracto:.2f}'
+                    
+                    # Remover de pendientes para evitar reutilización
+                    mc_pendientes = [mc for mc in mc_pendientes if mc['idx'] != mc_record['idx']]
+                
+                stats['mc_f3'] += len(fecha_group['items'])
     
     # PASO 4: Conciliación VISA (2 fases)
     if not visa_df.empty:
         print("🏦 PASO 4: Conciliando VISA")
         
-        # Fase 1: Por CODCOM + MONTO
+        # Primero, agrupar VISA por comercio y fecha proceso
+        visa_groups = {}
+        for visa_idx, visa_row in visa_df.iterrows():
+            if not visa_row['ESTADO'].startswith('Pendiente'):
+                continue
+                
+            comercio = str(visa_row.get('COMERCIO/CADENA', '')).strip()
+            fecha_proceso = parse_date(visa_row['FECHA PROCESO'])
+            monto_visa = convert_to_number(visa_row['IMPORTE NETO'])
+            
+            if comercio and fecha_proceso and not np.isnan(monto_visa):
+                fecha_key = fecha_proceso.strftime('%Y-%m-%d')
+                group_key = f"{comercio}_{fecha_key}"
+                
+                if group_key not in visa_groups:
+                    visa_groups[group_key] = {'total': 0, 'items': [], 'comercio': comercio, 'fecha': fecha_key}
+                
+                visa_groups[group_key]['total'] += monto_visa
+                visa_groups[group_key]['items'].append({'idx': visa_idx, 'row': visa_row})
+        
+        # Fase 1: Línea de extracto vs Grupos totalizados de VISA
         for idx, ext_row in extracto_df.iterrows():
             if not ext_row['ESTADO'].startswith('Pendiente'):
                 continue
@@ -1004,26 +1113,80 @@ def perform_reconciliation_multi_step(extracto_df, amex_df, diners_df, mc_df, vi
                     full_code = match.group(1)
                     codcom_key = full_code[-7:]
                     
-                    # Buscar en VISA
-                    for visa_idx, visa_row in visa_df.iterrows():
-                        if not visa_row['ESTADO'].startswith('Pendiente'):
-                            continue
+                    # Buscar grupo VISA que coincida con el comercio y monto
+                    for group_key, visa_group in list(visa_groups.items()):
+                        if (codcom_key in visa_group['comercio'] and 
+                            abs(monto_ext - visa_group['total']) < 0.01):
                             
-                        comercio_visa = str(visa_row.get('COMERCIO/CADENA', '')).strip()
-                        monto_visa = convert_to_number(visa_row['IMPORTE NETO'])
-                        
-                        if (codcom_key in comercio_visa and 
-                            not np.isnan(monto_visa) and 
-                            abs(monto_ext - monto_visa) < 0.01):
+                            # Verificar si algún registro VISA del grupo tiene estado 'Pendiente MA'
+                            es_ma = any(item['row']['ESTADO'] == 'Pendiente MA' for item in visa_group['items'])
+                            etiqueta = 'MA-' if es_ma else ''
                             
-                            # Conciliar
-                            etiqueta = 'MA-' if visa_row['ESTADO'] == 'Pendiente MA' else ''
+                            # Conciliar extracto
                             extracto_df.at[idx, 'ESTADO'] = f'{etiqueta}P5-F1-Conciliado'
-                            extracto_df.at[idx, '#REF'] = f'{etiqueta}VISA-{codcom_key}'
-                            visa_df.at[visa_idx, 'ESTADO'] = f'{etiqueta}P5-F1-Conciliado'
-                            visa_df.at[visa_idx, '#REF'] = f'{etiqueta}{ext_row["OPERACIÓN - NÚMERO"]}'
+                            extracto_df.at[idx, '#REF'] = f'{etiqueta}VISA-{codcom_key} - {visa_group["fecha"]}'
+                            
+                            # Conciliar todos los registros VISA del grupo
+                            for item in visa_group['items']:
+                                visa_df.at[item['idx'], 'ESTADO'] = f'{etiqueta}P5-F1-Conciliado'
+                                visa_df.at[item['idx'], '#REF'] = f'{etiqueta}{ext_row["OPERACIÓN - NÚMERO"]} - {visa_group["fecha"]}'
+                            
+                            del visa_groups[group_key]
                             stats['visa_f1'] += 1
                             break
+        
+        # Fase 2: Extracto agrupado por fecha y comercio vs grupos VISA
+        extracto_visa_groups = {}
+        
+        # Agrupar extracto pendiente por fecha y comercio
+        for idx, ext_row in extracto_df.iterrows():
+            if not ext_row['ESTADO'].startswith('Pendiente'):
+                continue
+                
+            fecha_ext = parse_date(ext_row['FECHA'])
+            monto_ext = convert_to_number(ext_row['MONTO'])
+            referencia2 = str(ext_row.get('REFERENCIA2', '')).strip()
+            
+            if fecha_ext and not np.isnan(monto_ext) and referencia2:
+                # Extraer código de comercio
+                match = re.search(r'(\d{9})', referencia2)
+                if match:
+                    full_code = match.group(1)
+                    codcom_key = full_code[-7:]
+                    fecha_key = fecha_ext.strftime('%Y-%m-%d')
+                    group_key = f"{codcom_key}_{fecha_key}"
+                    
+                    if group_key not in extracto_visa_groups:
+                        extracto_visa_groups[group_key] = {'total': 0, 'items': [], 'codcom': codcom_key, 'fecha': fecha_key}
+                    
+                    extracto_visa_groups[group_key]['total'] += monto_ext
+                    extracto_visa_groups[group_key]['items'].append({'idx': idx, 'row': ext_row})
+        
+        # Comparar grupos del extracto con grupos VISA restantes
+        for ext_group_key, ext_group in extracto_visa_groups.items():
+            # Buscar grupo VISA con el mismo comercio y monto total (fechas pueden ser diferentes)
+            for visa_group_key, visa_group in list(visa_groups.items()):
+                if (ext_group['codcom'] in visa_group['comercio'] and 
+                    abs(ext_group['total'] - visa_group['total']) < 0.01):
+                    
+                    # Verificar si algún registro VISA del grupo tiene estado 'Pendiente MA'
+                    es_ma = any(item['row']['ESTADO'] == 'Pendiente MA' for item in visa_group['items'])
+                    etiqueta = 'MA-' if es_ma else ''
+                    
+                    # Conciliar todos los registros del extracto
+                    for item in ext_group['items']:
+                        extracto_df.at[item['idx'], 'ESTADO'] = f'{etiqueta}P5-F2-Conciliado'
+                        extracto_df.at[item['idx'], '#REF'] = f'{etiqueta}VISA-{ext_group["codcom"]} - Monto: {ext_group["total"]:.2f} ({ext_group["fecha"]}→{visa_group["fecha"]})'
+                    
+                    # Conciliar todos los registros VISA del grupo
+                    for item in visa_group['items']:
+                        visa_etiqueta = 'MA-' if item['row']['ESTADO'] == 'Pendiente MA' else ''
+                        visa_df.at[item['idx'], 'ESTADO'] = f'{visa_etiqueta}P5-F2-Conciliado'
+                        visa_df.at[item['idx'], '#REF'] = f'{visa_etiqueta}{ext_group["items"][0]["row"]["OPERACIÓN - NÚMERO"]} - Monto: {ext_group["total"]:.2f} ({ext_group["fecha"]}→{visa_group["fecha"]})'
+                    
+                    del visa_groups[visa_group_key]
+                    stats['visa_f2'] += 1
+                    break
     
     # PASO 5: Conciliación PAYU
     if not payu_df.empty:
@@ -1069,11 +1232,30 @@ def perform_reconciliation_multi_step(extracto_df, amex_df, diners_df, mc_df, vi
 async def download_file(filename: str):
     file_path = f"outputs/{filename}"
     if os.path.exists(file_path):
-        return FileResponse(
+        # Crear respuesta de descarga
+        response = FileResponse(
             path=file_path,
             filename=filename,
             media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
+        
+        # Programar eliminación del archivo después de la descarga
+        import threading
+        import time
+        
+        def delete_file_after_delay():
+            time.sleep(5)  # Esperar 5 segundos para asegurar que la descarga termine
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    print(f"🗑️ Archivo eliminado automáticamente: {filename}")
+            except Exception as e:
+                print(f"⚠️ Error eliminando archivo {filename}: {e}")
+        
+        # Ejecutar eliminación en hilo separado
+        threading.Thread(target=delete_file_after_delay, daemon=True).start()
+        
+        return response
     raise HTTPException(status_code=404, detail="Archivo no encontrado")
 
 if __name__ == "__main__":

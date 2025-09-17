@@ -170,6 +170,9 @@ outputs/
 *.xls
 *.csv
 
+# Archivo de muestra (solo referencia)
+5. Conciliador sin validacion.html
+
 # Logs
 *.log
 
