@@ -168,12 +168,31 @@ async def upload_files(file_type: str, files: List[UploadFile] = File(...)):
             # Procesar según tipo
             if file_type == 'amex':
                 required_cols = ['CODIGO', 'NETO_TOTAL', 'FECHA_ABONO']
-                if all(col in df.columns for col in required_cols):
-                    df = df[pd.to_numeric(df['NETO_TOTAL'], errors='coerce') != 0]
+                print(f"📄 AMEX - Archivo: {file.filename}")
+                print(f"📄 AMEX - Columnas disponibles: {list(df.columns)}")
+                print(f"📄 AMEX - Formato MA detectado: {formato_mes_anio}")
+                
+                # Verificar columnas con flexibilidad
+                missing_cols = []
+                for col in required_cols:
+                    if col not in df.columns:
+                        # Buscar columnas similares
+                        found = False
+                        for df_col in df.columns:
+                            if col.upper() in str(df_col).upper():
+                                df = df.rename(columns={df_col: col})
+                                found = True
+                                break
+                        if not found:
+                            missing_cols.append(col)
+                
+                if not missing_cols:
+                    # Filtrar por NETO_TOTAL != 0
+                    df_filtered = df[pd.to_numeric(df['NETO_TOTAL'], errors='coerce') != 0].copy()
                     estado_inicial = 'Pendiente MA' if formato_mes_anio['encontrado'] else 'Pendiente'
-                    df['ESTADO'] = estado_inicial
-                    df['#REF'] = ''
-                    amex_data.append(df)
+                    df_filtered['ESTADO'] = estado_inicial
+                    df_filtered['#REF'] = ''
+                    amex_data.append(df_filtered)
                     
                     # Guardar info del archivo
                     file_info = {
@@ -181,20 +200,41 @@ async def upload_files(file_type: str, files: List[UploadFile] = File(...)):
                         'formato_mes_anio': formato_mes_anio['encontrado'],
                         'mes': formato_mes_anio.get('mes'),
                         'anio': formato_mes_anio.get('anio'),
-                        'rows': len(df)
+                        'rows': len(df_filtered)
                     }
-                    files_info['amex'].extend([file_info] * len(df))
-                    processed_count += len(df)
+                    files_info['amex'].extend([file_info] * len(df_filtered))
+                    processed_count += len(df_filtered)
+                    print(f"✅ AMEX procesado: {len(df_filtered)} registros, Estado: {estado_inicial}")
+                else:
+                    print(f"❌ AMEX - Faltan columnas: {missing_cols}")
                     
             elif file_type == 'diners':
                 required_cols = ['CÓDIGO DE COMERCIO', 'ORDEN DE PAGO', 'FECHA DE PAGO', 'IMPORTE NETO DE PAGO']
-                if all(col in df.columns for col in required_cols):
+                print(f"📄 DINERS - Archivo: {file.filename}")
+                print(f"📄 DINERS - Columnas disponibles: {list(df.columns)}")
+                print(f"📄 DINERS - Formato MA detectado: {formato_mes_anio}")
+                
+                # Verificar columnas con flexibilidad
+                missing_cols = []
+                for col in required_cols:
+                    if col not in df.columns:
+                        # Buscar columnas similares
+                        found = False
+                        for df_col in df.columns:
+                            if col.replace('Ó', 'O').upper() in str(df_col).replace('Ó', 'O').upper():
+                                df = df.rename(columns={df_col: col})
+                                found = True
+                                break
+                        if not found:
+                            missing_cols.append(col)
+                
+                if not missing_cols:
                     # Filtrar filas válidas
-                    df = df.dropna(subset=['ORDEN DE PAGO', 'FECHA DE PAGO', 'IMPORTE NETO DE PAGO'])
+                    df_filtered = df.dropna(subset=['ORDEN DE PAGO', 'FECHA DE PAGO', 'IMPORTE NETO DE PAGO']).copy()
                     estado_inicial = 'Pendiente MA' if formato_mes_anio['encontrado'] else 'Pendiente'
-                    df['ESTADO'] = estado_inicial
-                    df['#REF'] = ''
-                    diners_data.append(df)
+                    df_filtered['ESTADO'] = estado_inicial
+                    df_filtered['#REF'] = ''
+                    diners_data.append(df_filtered)
                     
                     # Guardar info del archivo
                     file_info = {
@@ -202,22 +242,43 @@ async def upload_files(file_type: str, files: List[UploadFile] = File(...)):
                         'formato_mes_anio': formato_mes_anio['encontrado'],
                         'mes': formato_mes_anio.get('mes'),
                         'anio': formato_mes_anio.get('anio'),
-                        'rows': len(df)
+                        'rows': len(df_filtered)
                     }
-                    files_info['diners'].extend([file_info] * len(df))
-                    processed_count += len(df)
+                    files_info['diners'].extend([file_info] * len(df_filtered))
+                    processed_count += len(df_filtered)
+                    print(f"✅ DINERS procesado: {len(df_filtered)} registros, Estado: {estado_inicial}")
+                else:
+                    print(f"❌ DINERS - Faltan columnas: {missing_cols}")
                     
             elif file_type == 'mc':
                 required_cols = ['NETO_TOTAL', 'FECHA_ABONO']
-                if all(col in df.columns for col in required_cols):
+                print(f"📄 MC - Archivo: {file.filename}")
+                print(f"📄 MC - Columnas disponibles: {list(df.columns)}")
+                print(f"📄 MC - Formato MA detectado: {formato_mes_anio}")
+                
+                # Verificar columnas con flexibilidad
+                missing_cols = []
+                for col in required_cols:
+                    if col not in df.columns:
+                        # Buscar columnas similares
+                        found = False
+                        for df_col in df.columns:
+                            if col.upper() in str(df_col).upper():
+                                df = df.rename(columns={df_col: col})
+                                found = True
+                                break
+                        if not found:
+                            missing_cols.append(col)
+                
+                if not missing_cols:
                     # Agregar CODCOM desde nombre archivo
                     codcom = file.filename.split('-')[0] if '-' in file.filename else file.filename.split('.')[0]
                     df.insert(0, 'CODCOM', codcom)
-                    df = df[pd.to_numeric(df['NETO_TOTAL'], errors='coerce') != 0]
+                    df_filtered = df[pd.to_numeric(df['NETO_TOTAL'], errors='coerce') != 0].copy()
                     estado_inicial = 'Pendiente MA' if formato_mes_anio['encontrado'] else 'Pendiente'
-                    df['ESTADO'] = estado_inicial
-                    df['#REF'] = ''
-                    mc_data.append(df)
+                    df_filtered['ESTADO'] = estado_inicial
+                    df_filtered['#REF'] = ''
+                    mc_data.append(df_filtered)
                     
                     # Guardar info del archivo
                     file_info = {
@@ -225,19 +286,40 @@ async def upload_files(file_type: str, files: List[UploadFile] = File(...)):
                         'formato_mes_anio': formato_mes_anio['encontrado'],
                         'mes': formato_mes_anio.get('mes'),
                         'anio': formato_mes_anio.get('anio'),
-                        'rows': len(df)
+                        'rows': len(df_filtered)
                     }
-                    files_info['mc'].extend([file_info] * len(df))
-                    processed_count += len(df)
+                    files_info['mc'].extend([file_info] * len(df_filtered))
+                    processed_count += len(df_filtered)
+                    print(f"✅ MC procesado: {len(df_filtered)} registros, Estado: {estado_inicial}")
+                else:
+                    print(f"❌ MC - Faltan columnas: {missing_cols}")
                     
             elif file_type == 'visa':
                 required_cols = ['COMERCIO/CADENA', 'FECHA PROCESO', 'IMPORTE NETO']
-                if all(col in df.columns for col in required_cols):
-                    df = df[pd.to_numeric(df['IMPORTE NETO'], errors='coerce') != 0]
+                print(f"📄 VISA - Archivo: {file.filename}")
+                print(f"📄 VISA - Columnas disponibles: {list(df.columns)}")
+                print(f"📄 VISA - Formato MA detectado: {formato_mes_anio}")
+                
+                # Verificar columnas con flexibilidad
+                missing_cols = []
+                for col in required_cols:
+                    if col not in df.columns:
+                        # Buscar columnas similares
+                        found = False
+                        for df_col in df.columns:
+                            if col.upper() in str(df_col).upper() or col.replace('/', ' ').upper() in str(df_col).upper():
+                                df = df.rename(columns={df_col: col})
+                                found = True
+                                break
+                        if not found:
+                            missing_cols.append(col)
+                
+                if not missing_cols:
+                    df_filtered = df[pd.to_numeric(df['IMPORTE NETO'], errors='coerce') != 0].copy()
                     estado_inicial = 'Pendiente MA' if formato_mes_anio['encontrado'] else 'Pendiente'
-                    df['ESTADO'] = estado_inicial
-                    df['#REF'] = ''
-                    visa_data.append(df)
+                    df_filtered['ESTADO'] = estado_inicial
+                    df_filtered['#REF'] = ''
+                    visa_data.append(df_filtered)
                     
                     # Guardar info del archivo
                     file_info = {
@@ -245,10 +327,13 @@ async def upload_files(file_type: str, files: List[UploadFile] = File(...)):
                         'formato_mes_anio': formato_mes_anio['encontrado'],
                         'mes': formato_mes_anio.get('mes'),
                         'anio': formato_mes_anio.get('anio'),
-                        'rows': len(df)
+                        'rows': len(df_filtered)
                     }
-                    files_info['visa'].extend([file_info] * len(df))
-                    processed_count += len(df)
+                    files_info['visa'].extend([file_info] * len(df_filtered))
+                    processed_count += len(df_filtered)
+                    print(f"✅ VISA procesado: {len(df_filtered)} registros, Estado: {estado_inicial}")
+                else:
+                    print(f"❌ VISA - Faltan columnas: {missing_cols}")
                     
             elif file_type == 'payu':
                 required_cols = ['FECHA', 'DOCUMENTO', 'DESCRIPCION', 'CREDITOS', 'DEBITOS', 'NUEVO SALDO', 'SALDO CONGELADO ANTERIOR', 'SALDO RESERVA', 'SALDO DISPONIBLE']
